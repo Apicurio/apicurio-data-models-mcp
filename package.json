@@ -1,0 +1,39 @@
+{
+    "name": "@apicurio/data-models-mcp",
+    "version": "0.1.0",
+    "description": "MCP server wrapping @apicurio/data-models for AI-assisted OpenAPI and AsyncAPI editing",
+    "type": "module",
+    "main": "dist/index.js",
+    "bin": {
+        "apicurio-data-models-mcp": "dist/index.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "start": "node dist/index.js",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "lint": "biome check src test",
+        "lint:fix": "biome check --fix src test"
+    },
+    "keywords": [
+        "mcp",
+        "openapi",
+        "asyncapi",
+        "apicurio",
+        "data-models"
+    ],
+    "license": "Apache-2.0",
+    "dependencies": {
+        "@apicurio/data-models": "^1.0.7",
+        "@modelcontextprotocol/sdk": "^1.12.1",
+        "js-yaml": "^4.1.0",
+        "zod": "^3.24.2"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^2.4.4",
+        "@types/js-yaml": "^4.0.9",
+        "@types/node": "^22.15.3",
+        "typescript": "^5.8.3",
+        "vitest": "^3.1.2"
+    }
+}

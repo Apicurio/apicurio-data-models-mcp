@@ -1,0 +1,30 @@
+{
+    "asyncapi": "2.0.0",
+    "info": {
+        "title": "Streetlights API",
+        "description": "A sample AsyncAPI document for streetlights",
+        "version": "1.0.0"
+    },
+    "channels": {
+        "light/measured": {
+            "publish": {
+                "operationId": "receiveLightMeasurement",
+                "summary": "Receive light measurements",
+                "message": {
+                    "payload": {
+                        "type": "object",
+                        "properties": {
+                            "lumens": {
+                                "type": "integer"
+                            },
+                            "sentAt": {
+                                "type": "string",
+                                "format": "date-time"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
