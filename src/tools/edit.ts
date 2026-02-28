@@ -1,7 +1,6 @@
 import {
-    type Document,
-    type ModelType as LibModelType,
     Library,
+    ModelTypeUtil,
     NodePath,
     OpenApi20DocumentImpl,
     OpenApi30DocumentImpl,
@@ -10,15 +9,6 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../session-manager.js";
 import { errorResult, successResult, withErrorHandling } from "../util/errors.js";
-
-/**
- * Check whether the document is an OpenAPI document (any version).
- */
-function isOpenApi(doc: Document): boolean {
-    const mt = (doc as any).modelType() as LibModelType;
-    // OPENAPI20=8, OPENAPI30=9, OPENAPI31=10
-    return mt >= 8 && mt <= 10;
-}
 
 /**
  * Register all edit tools (semantic + generic) on the given MCP server.
@@ -84,7 +74,7 @@ export function registerEditTools(server: McpServer): void {
             const entry = sessionManager.getSession(session);
             const doc = entry.document;
 
-            if (!isOpenApi(doc)) {
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
                 return errorResult("This operation is only supported for OpenAPI documents");
             }
 

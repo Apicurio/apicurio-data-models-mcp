@@ -1,7 +1,6 @@
 import {
-    type Document,
-    type ModelType as LibModelType,
     Library,
+    ModelTypeUtil,
     NodePath,
     OpenApi20DocumentImpl,
     OpenApi30DocumentImpl,
@@ -13,24 +12,6 @@ import { errorResult, successResult, withErrorHandling } from "../util/errors.js
 import { fromLibModelType } from "../util/model-type-map.js";
 
 const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch"] as const;
-
-/**
- * Check whether the document is an OpenAPI document (any version).
- */
-function isOpenApi(doc: Document): boolean {
-    const mt = (doc as any).modelType() as LibModelType;
-    // OPENAPI20=8, OPENAPI30=9, OPENAPI31=10
-    return mt >= 8 && mt <= 10;
-}
-
-/**
- * Check whether the document is an AsyncAPI document (any version).
- */
-function isAsyncApi(doc: Document): boolean {
-    const mt = (doc as any).modelType() as LibModelType;
-    // ASYNCAPI20=0 through ASYNCAPI30=7
-    return mt >= 0 && mt <= 7;
-}
 
 /**
  * Get document info (shared helper used by both tools and resources).
@@ -49,7 +30,7 @@ export function getDocumentInfo(sessionName: string): any {
         version: info?.getVersion() ?? null,
     };
 
-    if (isOpenApi(doc)) {
+    if (ModelTypeUtil.isOpenApiModel(doc)) {
         const paths = (doc as any).getPaths();
         result.pathCount = paths?.getItems()?.length ?? 0;
         if (doc instanceof OpenApi20DocumentImpl) {
@@ -58,7 +39,7 @@ export function getDocumentInfo(sessionName: string): any {
             const schemas = doc.getComponents()?.getSchemas();
             result.schemaCount = schemas ? Object.keys(schemas).length : 0;
         }
-    } else if (isAsyncApi(doc)) {
+    } else if (ModelTypeUtil.isAsyncApiModel(doc)) {
         const channels = (doc as any).getChannels();
         result.channelCount = channels?.getItems()?.length ?? 0;
     }
@@ -73,7 +54,7 @@ export function getDocumentPaths(sessionName: string): any {
     const entry = sessionManager.getSession(sessionName);
     const doc = entry.document;
 
-    if (isOpenApi(doc)) {
+    if (ModelTypeUtil.isOpenApiModel(doc)) {
         const paths = (doc as any).getPaths();
         if (!paths) {
             return { session: sessionName, paths: [] };
@@ -90,7 +71,7 @@ export function getDocumentPaths(sessionName: string): any {
             return { path: name, methods };
         });
         return { session: sessionName, paths: result };
-    } else if (isAsyncApi(doc)) {
+    } else if (ModelTypeUtil.isAsyncApiModel(doc)) {
         const channels = (doc as any).getChannels();
         if (!channels) {
             return { session: sessionName, channels: [] };
@@ -123,7 +104,7 @@ export function getDocumentSchemas(sessionName: string): any {
         const schemas = doc.getComponents()?.getSchemas();
         const names = schemas ? Object.keys(schemas) : [];
         return { session: sessionName, schemas: names };
-    } else if (isAsyncApi(doc)) {
+    } else if (ModelTypeUtil.isAsyncApiModel(doc)) {
         const components = (doc as any).getComponents();
         if (components) {
             const schemas = components.getSchemas();
@@ -185,7 +166,7 @@ export function registerQueryTools(server: McpServer): void {
             const entry = sessionManager.getSession(session);
             const doc = entry.document;
 
-            if (isOpenApi(doc)) {
+            if (ModelTypeUtil.isOpenApiModel(doc)) {
                 const paths = (doc as any).getPaths();
                 if (!paths) {
                     return errorResult(`No paths defined in document`);
@@ -221,7 +202,7 @@ export function registerQueryTools(server: McpServer): void {
                     path: apiPath,
                     operations,
                 });
-            } else if (isAsyncApi(doc)) {
+            } else if (ModelTypeUtil.isAsyncApiModel(doc)) {
                 const channels = (doc as any).getChannels();
                 if (!channels) {
                     return errorResult(`No channels defined in document`);
