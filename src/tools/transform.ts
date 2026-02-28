@@ -1,9 +1,9 @@
-import { Library, type Oas20Document } from "@apicurio/data-models";
+import { Library } from "@apicurio/data-models";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../session-manager.js";
 import { errorResult, successResult, withErrorHandling } from "../util/errors.js";
-import { ALL_MODEL_TYPES, fromDocumentType, type ModelType, toDocumentType } from "../util/model-type-map.js";
+import { ALL_MODEL_TYPES, fromLibModelType, type ModelType, toLibModelType } from "../util/model-type-map.js";
 
 /**
  * Register all transformation tools on the given MCP server.
@@ -14,7 +14,7 @@ export function registerTransformTools(server: McpServer): void {
     // ── document_transform ─────────────────────────────────────────
     server.tool(
         "document_transform",
-        "Convert an OpenAPI document between spec versions (currently supports: OpenAPI 2.0 -> 3.0)",
+        "Convert an OpenAPI document between spec versions (e.g. OpenAPI 2.0 -> 3.0, 3.0 -> 3.1)",
         {
             session: z.string().describe("Session name"),
             targetType: z
@@ -24,14 +24,13 @@ export function registerTransformTools(server: McpServer): void {
         withErrorHandling(async (args) => {
             const { session, targetType } = args;
             const entry = sessionManager.getSession(session);
-            const sourceType = fromDocumentType(entry.modelType);
-            const _targetDocType = toDocumentType(targetType as ModelType);
+            const sourceType = fromLibModelType(entry.modelType);
+            const targetLibModelType = toLibModelType(targetType as ModelType);
 
-            // Validate the transformation is supported
-            if (sourceType === "openapi2" && targetType === "openapi3") {
-                const transformed = Library.transformDocument(entry.document as Oas20Document);
+            try {
+                const transformed = Library.transformDocument(entry.document, targetLibModelType);
                 entry.document = transformed;
-                entry.modelType = transformed.getDocumentType();
+                entry.modelType = (transformed as any).modelType();
                 sessionManager.touchSession(session);
 
                 return successResult({
@@ -40,12 +39,11 @@ export function registerTransformTools(server: McpServer): void {
                     targetType,
                     transformed: true,
                 });
+            } catch (e: any) {
+                return errorResult(
+                    `Transformation from ${sourceType} to ${targetType} is not supported: ${e.message}`,
+                );
             }
-
-            return errorResult(
-                `Transformation from ${sourceType} to ${targetType} is not supported. ` +
-                    `Supported: openapi2 -> openapi3`,
-            );
         }),
     );
 
@@ -62,7 +60,7 @@ export function registerTransformTools(server: McpServer): void {
 
             const dereferenced = Library.dereferenceDocument(entry.document);
             entry.document = dereferenced;
-            entry.modelType = dereferenced.getDocumentType();
+            entry.modelType = (dereferenced as any).modelType();
             sessionManager.touchSession(session);
 
             return successResult({

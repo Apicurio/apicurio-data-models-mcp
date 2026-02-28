@@ -41,8 +41,8 @@ export function registerValidationTools(server: McpServer): void {
 
             let targetNode = entry.document as any;
             if (nodePathStr) {
-                const np = new NodePath(nodePathStr);
-                targetNode = np.resolve(entry.document);
+                const np = NodePath.parse(nodePathStr);
+                targetNode = Library.resolveNodePath(np, entry.document);
                 if (targetNode == null) {
                     return errorResult(`No node found at path: ${nodePathStr}`);
                 }

@@ -1,47 +1,54 @@
-import { DocumentType } from "@apicurio/data-models";
+import { ModelType as LibModelType } from "@apicurio/data-models";
 
 /**
  * A human-friendly model type string that distinguishes between specific
- * OpenAPI/AsyncAPI versions, unlike the library's DocumentType enum which
- * groups versions together.
+ * OpenAPI/AsyncAPI versions, unlike the library's ModelType enum which
+ * has a separate value for each minor version.
  */
 export type ModelType = "openapi2" | "openapi3" | "asyncapi2";
 
 /**
- * Map a ModelType string to the library's DocumentType enum.
+ * Map a ModelType string to the library's ModelType enum.
  *
  * @param modelType the human-friendly model type
- * @returns the corresponding DocumentType enum value
+ * @returns the corresponding LibModelType enum value
  */
-export function toDocumentType(modelType: ModelType): DocumentType {
+export function toLibModelType(modelType: ModelType): LibModelType {
     switch (modelType) {
         case "openapi2":
-            return DocumentType.openapi2;
+            return LibModelType.OPENAPI20;
         case "openapi3":
-            return DocumentType.openapi3;
+            return LibModelType.OPENAPI30;
         case "asyncapi2":
-            return DocumentType.asyncapi2;
+            return LibModelType.ASYNCAPI20;
         default:
             throw new Error(`Unknown model type: ${modelType}`);
     }
 }
 
 /**
- * Map a DocumentType enum value to a ModelType string.
+ * Map a library ModelType enum value to a human-friendly ModelType string.
  *
- * @param docType the library DocumentType
+ * @param libModelType the library ModelType
  * @returns a human-friendly model type string
  */
-export function fromDocumentType(docType: DocumentType): ModelType {
-    switch (docType) {
-        case DocumentType.openapi2:
+export function fromLibModelType(libModelType: LibModelType): ModelType {
+    switch (libModelType) {
+        case LibModelType.OPENAPI20:
             return "openapi2";
-        case DocumentType.openapi3:
+        case LibModelType.OPENAPI30:
+        case LibModelType.OPENAPI31:
             return "openapi3";
-        case DocumentType.asyncapi2:
+        case LibModelType.ASYNCAPI20:
+        case LibModelType.ASYNCAPI21:
+        case LibModelType.ASYNCAPI22:
+        case LibModelType.ASYNCAPI23:
+        case LibModelType.ASYNCAPI24:
+        case LibModelType.ASYNCAPI25:
+        case LibModelType.ASYNCAPI26:
             return "asyncapi2";
         default:
-            throw new Error(`Unknown DocumentType: ${docType}`);
+            throw new Error(`Unsupported ModelType: ${libModelType}`);
     }
 }
 

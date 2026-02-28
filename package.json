@@ -24,7 +24,7 @@
     ],
     "license": "Apache-2.0",
     "dependencies": {
-        "@apicurio/data-models": "^1.0.7",
+        "@apicurio/data-models": "^2.3.1",
         "@modelcontextprotocol/sdk": "^1.12.1",
         "js-yaml": "^4.1.0",
         "zod": "^3.24.2"

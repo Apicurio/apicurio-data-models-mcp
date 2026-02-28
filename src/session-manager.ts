@@ -1,4 +1,4 @@
-import type { Document, DocumentType } from "@apicurio/data-models";
+import type { Document, ModelType as LibModelType } from "@apicurio/data-models";
 import type { DocumentFormat } from "./util/format.js";
 
 /**
@@ -7,7 +7,7 @@ import type { DocumentFormat } from "./util/format.js";
 export interface SessionEntry {
     name: string;
     document: Document;
-    modelType: DocumentType;
+    modelType: LibModelType;
     filePath: string | null;
     format: DocumentFormat;
     createdAt: Date;

@@ -1,12 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { Library } from "@apicurio/data-models";
+import { ModelType as LibModelType, Library } from "@apicurio/data-models";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../session-manager.js";
 import { errorResult, successResult, withErrorHandling } from "../util/errors.js";
 import { type DocumentFormat, detectFormat, parseContent, serializeContent } from "../util/format.js";
-import { ALL_MODEL_TYPES, fromDocumentType, type ModelType, toDocumentType } from "../util/model-type-map.js";
+import { ALL_MODEL_TYPES, fromLibModelType, type ModelType, toLibModelType } from "../util/model-type-map.js";
 
 /**
  * Register all session management tools on the given MCP server.
@@ -35,7 +35,7 @@ export function registerSessionTools(server: McpServer): void {
             const detectedFormat: DocumentFormat = format ?? detectFormat(content);
             const json = parseContent(content, detectedFormat);
             const document = Library.readDocument(json);
-            const modelType = document.getDocumentType();
+            const modelType = (document as any).modelType();
 
             sessionManager.addSession({
                 name: session,
@@ -49,7 +49,7 @@ export function registerSessionTools(server: McpServer): void {
 
             return successResult({
                 session,
-                modelType: fromDocumentType(modelType),
+                modelType: fromLibModelType(modelType),
                 filePath: resolvedPath,
                 format: detectedFormat,
             });
@@ -71,24 +71,34 @@ export function registerSessionTools(server: McpServer): void {
         withErrorHandling(async (args) => {
             const { session, modelType, title, version } = args;
 
-            const docType = toDocumentType(modelType as ModelType);
-            const document = Library.createDocument(docType);
+            const libMT = toLibModelType(modelType as ModelType);
+            const document = Library.createDocument(libMT);
+
+            // Set the spec version property (v2 library doesn't do this automatically)
+            const docAny = document as any;
+            if (libMT === LibModelType.OPENAPI20) {
+                docAny.setSwagger("2.0");
+            } else if (libMT === LibModelType.OPENAPI30) {
+                docAny.setOpenapi("3.0.0");
+            } else if (libMT >= LibModelType.ASYNCAPI20 && libMT <= LibModelType.ASYNCAPI26) {
+                docAny.setAsyncapi("2.0.0");
+            }
 
             if (title || version) {
                 const info = document.createInfo();
-                document.info = info;
+                document.setInfo(info);
                 if (title) {
-                    info.title = title;
+                    info.setTitle(title);
                 }
                 if (version) {
-                    info.version = version;
+                    info.setVersion(version);
                 }
             }
 
             sessionManager.addSession({
                 name: session,
                 document,
-                modelType: docType,
+                modelType: libMT,
                 filePath: null,
                 format: "json",
                 createdAt: new Date(),
@@ -168,7 +178,7 @@ export function registerSessionTools(server: McpServer): void {
         withErrorHandling(async () => {
             const sessions = sessionManager.listSessions().map((s) => ({
                 name: s.name,
-                modelType: fromDocumentType(s.modelType),
+                modelType: fromLibModelType(s.modelType),
                 filePath: s.filePath,
                 format: s.format,
                 createdAt: s.createdAt.toISOString(),

@@ -1,18 +1,36 @@
 import {
-    AaiDocument,
+    type Document,
+    type ModelType as LibModelType,
     Library,
     NodePath,
-    Oas20Document,
-    Oas30Document,
-    OasDocument,
+    OpenApi20DocumentImpl,
+    OpenApi30DocumentImpl,
 } from "@apicurio/data-models";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../session-manager.js";
 import { errorResult, successResult, withErrorHandling } from "../util/errors.js";
-import { fromDocumentType } from "../util/model-type-map.js";
+import { fromLibModelType } from "../util/model-type-map.js";
 
 const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch"] as const;
+
+/**
+ * Check whether the document is an OpenAPI document (any version).
+ */
+function isOpenApi(doc: Document): boolean {
+    const mt = (doc as any).modelType() as LibModelType;
+    // OPENAPI20=8, OPENAPI30=9, OPENAPI31=10
+    return mt >= 8 && mt <= 10;
+}
+
+/**
+ * Check whether the document is an AsyncAPI document (any version).
+ */
+function isAsyncApi(doc: Document): boolean {
+    const mt = (doc as any).modelType() as LibModelType;
+    // ASYNCAPI20=0 through ASYNCAPI30=7
+    return mt >= 0 && mt <= 7;
+}
 
 /**
  * Get document info (shared helper used by both tools and resources).
@@ -20,26 +38,29 @@ const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch"
 export function getDocumentInfo(sessionName: string): any {
     const entry = sessionManager.getSession(sessionName);
     const doc = entry.document;
-    const modelType = fromDocumentType(entry.modelType);
+    const modelType = fromLibModelType(entry.modelType);
 
+    const info = doc.getInfo();
     const result: any = {
         session: sessionName,
         modelType,
-        title: doc.info?.title ?? null,
-        description: doc.info?.description ?? null,
-        version: doc.info?.version ?? null,
+        title: info?.getTitle() ?? null,
+        description: info?.getDescription() ?? null,
+        version: info?.getVersion() ?? null,
     };
 
-    if (doc instanceof OasDocument) {
-        const paths = doc.paths;
-        result.pathCount = paths?.getPathItems()?.length ?? 0;
-        if (doc instanceof Oas20Document) {
-            result.schemaCount = doc.definitions?.getDefinitions()?.length ?? 0;
-        } else if (doc instanceof Oas30Document) {
-            result.schemaCount = doc.components?.getSchemaDefinitions()?.length ?? 0;
+    if (isOpenApi(doc)) {
+        const paths = (doc as any).getPaths();
+        result.pathCount = paths?.getItems()?.length ?? 0;
+        if (doc instanceof OpenApi20DocumentImpl) {
+            result.schemaCount = doc.getDefinitions()?.getItems()?.length ?? 0;
+        } else if (doc instanceof OpenApi30DocumentImpl) {
+            const schemas = doc.getComponents()?.getSchemas();
+            result.schemaCount = schemas ? Object.keys(schemas).length : 0;
         }
-    } else if (doc instanceof AaiDocument) {
-        result.channelCount = doc.getChannels()?.length ?? 0;
+    } else if (isAsyncApi(doc)) {
+        const channels = (doc as any).getChannels();
+        result.channelCount = channels?.getItems()?.length ?? 0;
     }
 
     return result;
@@ -52,29 +73,35 @@ export function getDocumentPaths(sessionName: string): any {
     const entry = sessionManager.getSession(sessionName);
     const doc = entry.document;
 
-    if (doc instanceof OasDocument) {
-        const paths = doc.paths;
+    if (isOpenApi(doc)) {
+        const paths = (doc as any).getPaths();
         if (!paths) {
             return { session: sessionName, paths: [] };
         }
-        const pathItems = paths.getPathItems() ?? [];
-        const result = pathItems.map((pi) => {
+        const pathNames = paths.getItemNames() ?? [];
+        const result = pathNames.map((name: string) => {
+            const pi = paths.getItem(name);
             const methods: string[] = [];
             for (const method of HTTP_METHODS) {
                 if ((pi as any)[method] != null) {
                     methods.push(method.toUpperCase());
                 }
             }
-            return { path: pi.getPath(), methods };
+            return { path: name, methods };
         });
         return { session: sessionName, paths: result };
-    } else if (doc instanceof AaiDocument) {
-        const channels = doc.getChannels() ?? [];
-        const result = channels.map((ch) => {
+    } else if (isAsyncApi(doc)) {
+        const channels = (doc as any).getChannels();
+        if (!channels) {
+            return { session: sessionName, channels: [] };
+        }
+        const channelNames = channels.getItemNames() ?? [];
+        const result = channelNames.map((name: string) => {
+            const ch = channels.getItem(name);
             const operations: string[] = [];
             if ((ch as any).publish != null) operations.push("publish");
             if ((ch as any).subscribe != null) operations.push("subscribe");
-            return { channel: (ch as any)._name ?? (ch as any)._path, operations };
+            return { channel: name, operations };
         });
         return { session: sessionName, channels: result };
     }
@@ -89,19 +116,19 @@ export function getDocumentSchemas(sessionName: string): any {
     const entry = sessionManager.getSession(sessionName);
     const doc = entry.document;
 
-    if (doc instanceof Oas20Document) {
-        const names = doc.definitions?.getDefinitionNames() ?? [];
+    if (doc instanceof OpenApi20DocumentImpl) {
+        const names = doc.getDefinitions()?.getItemNames() ?? [];
         return { session: sessionName, schemas: names };
-    } else if (doc instanceof Oas30Document) {
-        const names = doc.components?.getSchemaDefinitionNames() ?? [];
+    } else if (doc instanceof OpenApi30DocumentImpl) {
+        const schemas = doc.getComponents()?.getSchemas();
+        const names = schemas ? Object.keys(schemas) : [];
         return { session: sessionName, schemas: names };
-    } else if (doc instanceof AaiDocument) {
-        const components = doc.components;
+    } else if (isAsyncApi(doc)) {
+        const components = (doc as any).getComponents();
         if (components) {
-            const schemas = (components as any).schemas;
-            if (schemas && typeof schemas === "object") {
-                return { session: sessionName, schemas: Object.keys(schemas) };
-            }
+            const schemas = components.getSchemas();
+            const names = schemas ? Object.keys(schemas) : [];
+            return { session: sessionName, schemas: names };
         }
         return { session: sessionName, schemas: [] };
     }
@@ -158,12 +185,12 @@ export function registerQueryTools(server: McpServer): void {
             const entry = sessionManager.getSession(session);
             const doc = entry.document;
 
-            if (doc instanceof OasDocument) {
-                const paths = doc.paths;
+            if (isOpenApi(doc)) {
+                const paths = (doc as any).getPaths();
                 if (!paths) {
                     return errorResult(`No paths defined in document`);
                 }
-                const pathItem = paths.getPathItem(apiPath);
+                const pathItem = paths.getItem(apiPath);
                 if (!pathItem) {
                     return errorResult(`Path not found: ${apiPath}`);
                 }
@@ -194,9 +221,12 @@ export function registerQueryTools(server: McpServer): void {
                     path: apiPath,
                     operations,
                 });
-            } else if (doc instanceof AaiDocument) {
-                const channels = doc.getChannels() ?? [];
-                const channel = channels.find((ch) => (ch as any)._name === apiPath);
+            } else if (isAsyncApi(doc)) {
+                const channels = (doc as any).getChannels();
+                if (!channels) {
+                    return errorResult(`No channels defined in document`);
+                }
+                const channel = channels.getItem(apiPath);
                 if (!channel) {
                     return errorResult(`Channel not found: ${apiPath}`);
                 }
@@ -234,8 +264,8 @@ export function registerQueryTools(server: McpServer): void {
         withErrorHandling(async (args) => {
             const { session, nodePath: nodePathStr } = args;
             const entry = sessionManager.getSession(session);
-            const np = new NodePath(nodePathStr);
-            const node = np.resolve(entry.document);
+            const np = NodePath.parse(nodePathStr);
+            const node = Library.resolveNodePath(np, entry.document);
 
             if (node == null) {
                 return errorResult(`No node found at path: ${nodePathStr}`);

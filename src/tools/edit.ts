@@ -1,8 +1,24 @@
-import { Library, NodePath, Oas20Document, Oas30Document, OasDocument } from "@apicurio/data-models";
+import {
+    type Document,
+    type ModelType as LibModelType,
+    Library,
+    NodePath,
+    OpenApi20DocumentImpl,
+    OpenApi30DocumentImpl,
+} from "@apicurio/data-models";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../session-manager.js";
 import { errorResult, successResult, withErrorHandling } from "../util/errors.js";
+
+/**
+ * Check whether the document is an OpenAPI document (any version).
+ */
+function isOpenApi(doc: Document): boolean {
+    const mt = (doc as any).modelType() as LibModelType;
+    // OPENAPI20=8, OPENAPI30=9, OPENAPI31=10
+    return mt >= 8 && mt <= 10;
+}
 
 /**
  * Register all edit tools (semantic + generic) on the given MCP server.
@@ -25,18 +41,20 @@ export function registerEditTools(server: McpServer): void {
             const entry = sessionManager.getSession(session);
             const doc = entry.document;
 
-            if (doc.info == null) {
-                doc.info = doc.createInfo();
+            let info = doc.getInfo();
+            if (info == null) {
+                info = doc.createInfo();
+                doc.setInfo(info);
             }
 
             if (title !== undefined) {
-                doc.info.title = title;
+                info.setTitle(title);
             }
             if (description !== undefined) {
-                doc.info.description = description;
+                info.setDescription(description);
             }
             if (version !== undefined) {
-                doc.info.version = version;
+                info.setVersion(version);
             }
 
             sessionManager.touchSession(session);
@@ -44,9 +62,9 @@ export function registerEditTools(server: McpServer): void {
             return successResult({
                 session,
                 info: {
-                    title: doc.info.title,
-                    description: doc.info.description,
-                    version: doc.info.version,
+                    title: info.getTitle(),
+                    description: info.getDescription(),
+                    version: info.getVersion(),
                 },
             });
         }),
@@ -66,24 +84,27 @@ export function registerEditTools(server: McpServer): void {
             const entry = sessionManager.getSession(session);
             const doc = entry.document;
 
-            if (!(doc instanceof OasDocument)) {
+            if (!isOpenApi(doc)) {
                 return errorResult("This operation is only supported for OpenAPI documents");
             }
 
-            if (doc.paths == null) {
-                doc.paths = doc.createPaths();
+            const oasDoc = doc as any;
+            let paths = oasDoc.getPaths();
+            if (paths == null) {
+                paths = oasDoc.createPaths();
+                oasDoc.setPaths(paths);
             }
 
-            if (doc.paths.getPathItem(apiPath) != null) {
+            if (paths.getItem(apiPath) != null) {
                 return errorResult(`Path already exists: ${apiPath}`);
             }
 
-            const pathItem = doc.paths.createPathItem(apiPath);
+            const pathItem = paths.createPathItem();
             if (pathItemJson) {
                 const pathItemData = JSON.parse(pathItemJson);
                 Library.readNode(pathItemData, pathItem);
             }
-            doc.paths.addPathItem(apiPath, pathItem);
+            paths.addItem(apiPath, pathItem);
 
             sessionManager.touchSession(session);
 
@@ -110,20 +131,24 @@ export function registerEditTools(server: McpServer): void {
             const doc = entry.document;
             const schemaData = JSON.parse(schemaJson);
 
-            if (doc instanceof Oas20Document) {
-                if (doc.definitions == null) {
-                    doc.definitions = doc.createDefinitions();
+            if (doc instanceof OpenApi20DocumentImpl) {
+                let definitions = doc.getDefinitions();
+                if (definitions == null) {
+                    definitions = doc.createDefinitions();
+                    doc.setDefinitions(definitions);
                 }
-                const schemaDef = doc.definitions.createSchemaDefinition(name);
+                const schemaDef = definitions.createSchema();
                 Library.readNode(schemaData, schemaDef);
-                doc.definitions.addDefinition(name, schemaDef);
-            } else if (doc instanceof Oas30Document) {
-                if (doc.components == null) {
-                    doc.components = doc.createComponents();
+                definitions.addItem(name, schemaDef);
+            } else if (doc instanceof OpenApi30DocumentImpl) {
+                let components = doc.getComponents();
+                if (components == null) {
+                    components = doc.createComponents();
+                    doc.setComponents(components);
                 }
-                const schemaDef = doc.components.createSchemaDefinition(name);
+                const schemaDef = components.createSchema();
                 Library.readNode(schemaData, schemaDef);
-                doc.components.addSchemaDefinition(name, schemaDef);
+                components.addSchema(name, schemaDef);
             } else {
                 return errorResult("This operation is only supported for OpenAPI documents");
             }
@@ -153,24 +178,24 @@ export function registerEditTools(server: McpServer): void {
             const newValue = JSON.parse(valueJson);
 
             // Serialize the full document to a plain JS object
-            const docJson = Library.writeNode(entry.document);
+            const docJson = Library.writeNode(entry.document) as Record<string, any>;
 
             // Navigate the JSON object to the target location and replace it
-            const segments = new NodePath(nodePathStr).toSegments();
-            if (segments.length === 0) {
+            const npSegments = NodePath.parse(nodePathStr).getSegments();
+            if (npSegments.length === 0) {
                 return errorResult("Cannot replace the root document via set_node");
             }
 
-            let current = docJson;
-            for (let i = 0; i < segments.length - 1; i++) {
-                const seg = segments[i];
+            let current: any = docJson;
+            for (let i = 0; i < npSegments.length - 1; i++) {
+                const seg = npSegments[i].getValue();
                 if (current == null || typeof current !== "object") {
                     return errorResult(`Invalid node path: ${nodePathStr}`);
                 }
                 current = current[seg];
             }
 
-            const lastSeg = segments[segments.length - 1];
+            const lastSeg = npSegments[npSegments.length - 1].getValue();
             if (current == null || typeof current !== "object") {
                 return errorResult(`Invalid node path: ${nodePathStr}`);
             }
@@ -179,7 +204,7 @@ export function registerEditTools(server: McpServer): void {
             // Re-read the full document
             const newDoc = Library.readDocument(docJson);
             entry.document = newDoc;
-            entry.modelType = newDoc.getDocumentType();
+            entry.modelType = (newDoc as any).modelType();
 
             sessionManager.touchSession(session);
 
@@ -206,23 +231,23 @@ export function registerEditTools(server: McpServer): void {
             const entry = sessionManager.getSession(session);
 
             // Serialize-modify-deserialize approach
-            const docJson = Library.writeNode(entry.document);
+            const docJson = Library.writeNode(entry.document) as Record<string, any>;
 
-            const segments = new NodePath(nodePathStr).toSegments();
-            if (segments.length === 0) {
+            const npSegments = NodePath.parse(nodePathStr).getSegments();
+            if (npSegments.length === 0) {
                 return errorResult("Cannot remove the root document");
             }
 
-            let current = docJson;
-            for (let i = 0; i < segments.length - 1; i++) {
-                const seg = segments[i];
+            let current: any = docJson;
+            for (let i = 0; i < npSegments.length - 1; i++) {
+                const seg = npSegments[i].getValue();
                 if (current == null || typeof current !== "object") {
                     return errorResult(`Invalid node path: ${nodePathStr}`);
                 }
                 current = current[seg];
             }
 
-            const lastSeg = segments[segments.length - 1];
+            const lastSeg = npSegments[npSegments.length - 1].getValue();
             if (current == null || typeof current !== "object" || !(lastSeg in current)) {
                 return errorResult(`No node found at path: ${nodePathStr}`);
             }
@@ -241,7 +266,7 @@ export function registerEditTools(server: McpServer): void {
             // Re-read the full document
             const newDoc = Library.readDocument(docJson);
             entry.document = newDoc;
-            entry.modelType = newDoc.getDocumentType();
+            entry.modelType = (newDoc as any).modelType();
 
             sessionManager.touchSession(session);
 

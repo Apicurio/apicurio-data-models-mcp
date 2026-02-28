@@ -1,13 +1,13 @@
-import { DocumentType, Library } from "@apicurio/data-models";
+import { ModelType as LibModelType, Library } from "@apicurio/data-models";
 import { beforeEach, describe, expect, it } from "vitest";
 import { type SessionEntry, SessionManager } from "../../src/session-manager.js";
 
 function createTestEntry(name: string): SessionEntry {
-    const document = Library.createDocument(DocumentType.openapi3);
+    const document = Library.createDocument(LibModelType.OPENAPI30);
     return {
         name,
         document,
-        modelType: DocumentType.openapi3,
+        modelType: LibModelType.OPENAPI30,
         filePath: null,
         format: "json",
         createdAt: new Date(),
