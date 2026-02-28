@@ -5,7 +5,7 @@ import { ModelType as LibModelType } from "@apicurio/data-models";
  * OpenAPI/AsyncAPI versions, unlike the library's ModelType enum which
  * has a separate value for each minor version.
  */
-export type ModelType = "openapi2" | "openapi3" | "asyncapi2";
+export type ModelType = "openapi2" | "openapi3" | "asyncapi2" | "asyncapi3";
 
 /**
  * Map a ModelType string to the library's ModelType enum.
@@ -21,6 +21,8 @@ export function toLibModelType(modelType: ModelType): LibModelType {
             return LibModelType.OPENAPI30;
         case "asyncapi2":
             return LibModelType.ASYNCAPI20;
+        case "asyncapi3":
+            return LibModelType.ASYNCAPI30;
         default:
             throw new Error(`Unknown model type: ${modelType}`);
     }
@@ -47,10 +49,12 @@ export function fromLibModelType(libModelType: LibModelType): ModelType {
         case LibModelType.ASYNCAPI25:
         case LibModelType.ASYNCAPI26:
             return "asyncapi2";
+        case LibModelType.ASYNCAPI30:
+            return "asyncapi3";
         default:
             throw new Error(`Unsupported ModelType: ${libModelType}`);
     }
 }
 
 /** All valid model type strings. */
-export const ALL_MODEL_TYPES: ModelType[] = ["openapi2", "openapi3", "asyncapi2"];
+export const ALL_MODEL_TYPES: ModelType[] = ["openapi2", "openapi3", "asyncapi2", "asyncapi3"];

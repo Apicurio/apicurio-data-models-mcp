@@ -82,6 +82,8 @@ export function registerSessionTools(server: McpServer): void {
                 docAny.setOpenapi("3.0.0");
             } else if (libMT >= LibModelType.ASYNCAPI20 && libMT <= LibModelType.ASYNCAPI26) {
                 docAny.setAsyncapi("2.0.0");
+            } else if (libMT === LibModelType.ASYNCAPI30) {
+                docAny.setAsyncapi("3.0.0");
             }
 
             if (title || version) {
