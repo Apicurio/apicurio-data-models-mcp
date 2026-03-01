@@ -1,14 +1,11 @@
-import {
-    Library,
-    ModelTypeUtil,
-    NodePath,
-    OpenApi20DocumentImpl,
-    OpenApi30DocumentImpl,
-} from "@apicurio/data-models";
+import { Library, ModelTypeUtil, NodePath, TraverserDirection } from "@apicurio/data-models";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../session-manager.js";
 import { errorResult, successResult, withErrorHandling } from "../util/errors.js";
+import { ClearNodeVisitor } from "../visitors/ClearNodeVisitor.js";
+import { RemoveNodeVisitor } from "../visitors/RemoveNodeVisitor.js";
+import { type SchemaContainer, SchemaContainerVisitor } from "../visitors/SchemaContainerVisitor.js";
 
 /**
  * Register all edit tools (semantic + generic) on the given MCP server.
@@ -121,27 +118,42 @@ export function registerEditTools(server: McpServer): void {
             const doc = entry.document;
             const schemaData = JSON.parse(schemaJson);
 
-            if (doc instanceof OpenApi20DocumentImpl) {
-                let definitions = doc.getDefinitions();
-                if (definitions == null) {
-                    definitions = doc.createDefinitions();
-                    doc.setDefinitions(definitions);
+            // Use a visitor to find the schema container, regardless of spec version
+            const containerVisitor = new SchemaContainerVisitor();
+            Library.visitTree(doc, containerVisitor, TraverserDirection.down);
+
+            if (!containerVisitor.isFound()) {
+                // Container doesn't exist yet - create one based on model type
+                if (ModelTypeUtil.isOpenApiModel(doc)) {
+                    const oasDoc = doc as any;
+                    if (oasDoc.createDefinitions) {
+                        // OpenAPI 2.0
+                        const definitions = oasDoc.createDefinitions();
+                        oasDoc.setDefinitions(definitions);
+                    } else if (oasDoc.createComponents) {
+                        // OpenAPI 3.x
+                        const components = oasDoc.createComponents();
+                        oasDoc.setComponents(components);
+                    }
+                } else if (ModelTypeUtil.isAsyncApiModel(doc)) {
+                    const asyncDoc = doc as any;
+                    if (asyncDoc.createComponents) {
+                        const components = asyncDoc.createComponents();
+                        asyncDoc.setComponents(components);
+                    }
                 }
-                const schemaDef = definitions.createSchema();
-                Library.readNode(schemaData, schemaDef);
-                definitions.addItem(name, schemaDef);
-            } else if (doc instanceof OpenApi30DocumentImpl) {
-                let components = doc.getComponents();
-                if (components == null) {
-                    components = doc.createComponents();
-                    doc.setComponents(components);
-                }
-                const schemaDef = components.createSchema();
-                Library.readNode(schemaData, schemaDef);
-                components.addSchema(name, schemaDef);
-            } else {
-                return errorResult("This operation is only supported for OpenAPI documents");
+                // Re-visit to pick up the newly created container
+                Library.visitTree(doc, containerVisitor, TraverserDirection.down);
             }
+
+            if (!containerVisitor.isFound()) {
+                return errorResult("Unable to find or create a schema container in this document");
+            }
+
+            const container = containerVisitor.container as SchemaContainer;
+            const schemaDef = container.createSchema();
+            Library.readNode(schemaData, schemaDef);
+            container.addSchema(name, schemaDef);
 
             sessionManager.touchSession(session);
 
@@ -156,7 +168,7 @@ export function registerEditTools(server: McpServer): void {
     // ── document_set_node ──────────────────────────────────────────
     server.tool(
         "document_set_node",
-        "Set or replace any node at a given node path using serialize-modify-deserialize",
+        "Set or replace any node at a given node path using in-place update",
         {
             session: z.string().describe("Session name"),
             nodePath: z.string().describe("Node path to set (e.g. /info, /paths[/pets]/get)"),
@@ -167,34 +179,17 @@ export function registerEditTools(server: McpServer): void {
             const entry = sessionManager.getSession(session);
             const newValue = JSON.parse(valueJson);
 
-            // Serialize the full document to a plain JS object
-            const docJson = Library.writeNode(entry.document) as Record<string, any>;
+            const np = NodePath.parse(nodePathStr);
+            const node = Library.resolveNodePath(np, entry.document);
 
-            // Navigate the JSON object to the target location and replace it
-            const npSegments = NodePath.parse(nodePathStr).getSegments();
-            if (npSegments.length === 0) {
-                return errorResult("Cannot replace the root document via set_node");
+            if (node == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
             }
 
-            let current: any = docJson;
-            for (let i = 0; i < npSegments.length - 1; i++) {
-                const seg = npSegments[i].getValue();
-                if (current == null || typeof current !== "object") {
-                    return errorResult(`Invalid node path: ${nodePathStr}`);
-                }
-                current = current[seg];
-            }
-
-            const lastSeg = npSegments[npSegments.length - 1].getValue();
-            if (current == null || typeof current !== "object") {
-                return errorResult(`Invalid node path: ${nodePathStr}`);
-            }
-            current[lastSeg] = newValue;
-
-            // Re-read the full document
-            const newDoc = Library.readDocument(docJson);
-            entry.document = newDoc;
-            entry.modelType = (newDoc as any).modelType();
+            // Clear all properties from the node, then re-populate with new content
+            const clearVisitor = new ClearNodeVisitor();
+            node.accept(clearVisitor);
+            Library.readNode(newValue, node);
 
             sessionManager.touchSession(session);
 
@@ -220,43 +215,23 @@ export function registerEditTools(server: McpServer): void {
             const { session, nodePath: nodePathStr } = args;
             const entry = sessionManager.getSession(session);
 
-            // Serialize-modify-deserialize approach
-            const docJson = Library.writeNode(entry.document) as Record<string, any>;
+            const np = NodePath.parse(nodePathStr);
+            const node = Library.resolveNodePath(np, entry.document);
 
-            const npSegments = NodePath.parse(nodePathStr).getSegments();
-            if (npSegments.length === 0) {
-                return errorResult("Cannot remove the root document");
-            }
-
-            let current: any = docJson;
-            for (let i = 0; i < npSegments.length - 1; i++) {
-                const seg = npSegments[i].getValue();
-                if (current == null || typeof current !== "object") {
-                    return errorResult(`Invalid node path: ${nodePathStr}`);
-                }
-                current = current[seg];
-            }
-
-            const lastSeg = npSegments[npSegments.length - 1].getValue();
-            if (current == null || typeof current !== "object" || !(lastSeg in current)) {
+            if (node == null) {
                 return errorResult(`No node found at path: ${nodePathStr}`);
             }
 
-            if (Array.isArray(current)) {
-                const idx = parseInt(lastSeg, 10);
-                if (!Number.isNaN(idx)) {
-                    current.splice(idx, 1);
-                } else {
-                    return errorResult(`Invalid array index: ${lastSeg}`);
-                }
-            } else {
-                delete current[lastSeg];
-            }
+            // Use the RemoveNodeVisitor to remove the node from its parent.
+            // The visitor dispatches to the correct visitXxx() method based on
+            // the node's type, and each method knows exactly how to detach
+            // that node type from its parent.
+            const removeVisitor = new RemoveNodeVisitor();
+            node.accept(removeVisitor);
 
-            // Re-read the full document
-            const newDoc = Library.readDocument(docJson);
-            entry.document = newDoc;
-            entry.modelType = (newDoc as any).modelType();
+            if (removeVisitor.error) {
+                return errorResult(removeVisitor.error);
+            }
 
             sessionManager.touchSession(session);
 

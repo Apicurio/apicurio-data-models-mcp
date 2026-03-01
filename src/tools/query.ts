@@ -1,47 +1,40 @@
-import {
-    Library,
-    ModelTypeUtil,
-    NodePath,
-    OpenApi20DocumentImpl,
-    OpenApi30DocumentImpl,
-} from "@apicurio/data-models";
+import { Library, ModelTypeUtil, NodePath, TraverserDirection } from "@apicurio/data-models";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../session-manager.js";
 import { errorResult, successResult, withErrorHandling } from "../util/errors.js";
 import { fromLibModelType } from "../util/model-type-map.js";
-
-const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch"] as const;
+import { DocumentInfoVisitor } from "../visitors/DocumentInfoVisitor.js";
+import { PathCollectorVisitor } from "../visitors/PathCollectorVisitor.js";
+import { SchemaCollectorVisitor } from "../visitors/SchemaCollectorVisitor.js";
 
 /**
  * Get document info (shared helper used by both tools and resources).
+ *
+ * @param sessionName the session to query
+ * @returns document metadata including title, version, and counts
  */
 export function getDocumentInfo(sessionName: string): any {
     const entry = sessionManager.getSession(sessionName);
     const doc = entry.document;
     const modelType = fromLibModelType(entry.modelType);
 
-    const info = doc.getInfo();
+    const visitor = new DocumentInfoVisitor();
+    Library.visitTree(doc, visitor, TraverserDirection.down);
+
     const result: any = {
         session: sessionName,
         modelType,
-        title: info?.getTitle() ?? null,
-        description: info?.getDescription() ?? null,
-        version: info?.getVersion() ?? null,
+        title: visitor.title,
+        description: visitor.description,
+        version: visitor.version,
     };
 
     if (ModelTypeUtil.isOpenApiModel(doc)) {
-        const paths = (doc as any).getPaths();
-        result.pathCount = paths?.getItems()?.length ?? 0;
-        if (doc instanceof OpenApi20DocumentImpl) {
-            result.schemaCount = doc.getDefinitions()?.getItems()?.length ?? 0;
-        } else if (doc instanceof OpenApi30DocumentImpl) {
-            const schemas = doc.getComponents()?.getSchemas();
-            result.schemaCount = schemas ? Object.keys(schemas).length : 0;
-        }
+        result.pathCount = visitor.pathCount;
+        result.schemaCount = visitor.schemaCount;
     } else if (ModelTypeUtil.isAsyncApiModel(doc)) {
-        const channels = (doc as any).getChannels();
-        result.channelCount = channels?.getItems()?.length ?? 0;
+        result.channelCount = visitor.channelCount;
     }
 
     return result;
@@ -49,42 +42,21 @@ export function getDocumentInfo(sessionName: string): any {
 
 /**
  * Get list of paths/channels (shared helper).
+ *
+ * @param sessionName the session to query
+ * @returns paths or channels with their operations
  */
 export function getDocumentPaths(sessionName: string): any {
     const entry = sessionManager.getSession(sessionName);
     const doc = entry.document;
 
+    const visitor = new PathCollectorVisitor();
+    Library.visitTree(doc, visitor, TraverserDirection.down);
+
     if (ModelTypeUtil.isOpenApiModel(doc)) {
-        const paths = (doc as any).getPaths();
-        if (!paths) {
-            return { session: sessionName, paths: [] };
-        }
-        const pathNames = paths.getItemNames() ?? [];
-        const result = pathNames.map((name: string) => {
-            const pi = paths.getItem(name);
-            const methods: string[] = [];
-            for (const method of HTTP_METHODS) {
-                if ((pi as any)[method] != null) {
-                    methods.push(method.toUpperCase());
-                }
-            }
-            return { path: name, methods };
-        });
-        return { session: sessionName, paths: result };
+        return { session: sessionName, paths: visitor.paths };
     } else if (ModelTypeUtil.isAsyncApiModel(doc)) {
-        const channels = (doc as any).getChannels();
-        if (!channels) {
-            return { session: sessionName, channels: [] };
-        }
-        const channelNames = channels.getItemNames() ?? [];
-        const result = channelNames.map((name: string) => {
-            const ch = channels.getItem(name);
-            const operations: string[] = [];
-            if ((ch as any).publish != null) operations.push("publish");
-            if ((ch as any).subscribe != null) operations.push("subscribe");
-            return { channel: name, operations };
-        });
-        return { session: sessionName, channels: result };
+        return { session: sessionName, channels: visitor.channels };
     }
 
     return { session: sessionName, paths: [] };
@@ -92,29 +64,18 @@ export function getDocumentPaths(sessionName: string): any {
 
 /**
  * Get list of schema definitions (shared helper).
+ *
+ * @param sessionName the session to query
+ * @returns schema definition names
  */
 export function getDocumentSchemas(sessionName: string): any {
     const entry = sessionManager.getSession(sessionName);
     const doc = entry.document;
 
-    if (doc instanceof OpenApi20DocumentImpl) {
-        const names = doc.getDefinitions()?.getItemNames() ?? [];
-        return { session: sessionName, schemas: names };
-    } else if (doc instanceof OpenApi30DocumentImpl) {
-        const schemas = doc.getComponents()?.getSchemas();
-        const names = schemas ? Object.keys(schemas) : [];
-        return { session: sessionName, schemas: names };
-    } else if (ModelTypeUtil.isAsyncApiModel(doc)) {
-        const components = (doc as any).getComponents();
-        if (components) {
-            const schemas = components.getSchemas();
-            const names = schemas ? Object.keys(schemas) : [];
-            return { session: sessionName, schemas: names };
-        }
-        return { session: sessionName, schemas: [] };
-    }
+    const visitor = new SchemaCollectorVisitor();
+    Library.visitTree(doc, visitor, TraverserDirection.down);
 
-    return { session: sessionName, schemas: [] };
+    return { session: sessionName, schemas: visitor.schemas };
 }
 
 /**
@@ -167,17 +128,16 @@ export function registerQueryTools(server: McpServer): void {
             const doc = entry.document;
 
             if (ModelTypeUtil.isOpenApiModel(doc)) {
-                const paths = (doc as any).getPaths();
-                if (!paths) {
-                    return errorResult(`No paths defined in document`);
-                }
-                const pathItem = paths.getItem(apiPath);
+                // Resolve the path item directly via NodePath
+                const pathItemPath = NodePath.parse(`/paths[${apiPath}]`);
+                const pathItem = Library.resolveNodePath(pathItemPath, doc);
                 if (!pathItem) {
                     return errorResult(`Path not found: ${apiPath}`);
                 }
 
                 if (method) {
-                    const op = (pathItem as any)[method.toLowerCase()];
+                    const opPath = NodePath.parse(`/paths[${apiPath}]/${method.toLowerCase()}`);
+                    const op = Library.resolveNodePath(opPath, doc);
                     if (!op) {
                         return errorResult(`No ${method.toUpperCase()} operation on path ${apiPath}`);
                     }
@@ -190,9 +150,11 @@ export function registerQueryTools(server: McpServer): void {
                 }
 
                 // Return all operations on this path
+                const httpMethods = ["get", "put", "post", "delete", "options", "head", "patch"] as const;
                 const operations: any = {};
-                for (const m of HTTP_METHODS) {
-                    const op = (pathItem as any)[m];
+                for (const m of httpMethods) {
+                    const opPath = NodePath.parse(`/paths[${apiPath}]/${m}`);
+                    const op = Library.resolveNodePath(opPath, doc);
                     if (op != null) {
                         operations[m.toUpperCase()] = Library.writeNode(op);
                     }
@@ -203,11 +165,8 @@ export function registerQueryTools(server: McpServer): void {
                     operations,
                 });
             } else if (ModelTypeUtil.isAsyncApiModel(doc)) {
-                const channels = (doc as any).getChannels();
-                if (!channels) {
-                    return errorResult(`No channels defined in document`);
-                }
-                const channel = channels.getItem(apiPath);
+                const channelPath = NodePath.parse(`/channels[${apiPath}]`);
+                const channel = Library.resolveNodePath(channelPath, doc);
                 if (!channel) {
                     return errorResult(`Channel not found: ${apiPath}`);
                 }
