@@ -142,3 +142,4 @@ vite.config.ts.timestamp-*
 .idea/
 .serena/
 claudedocs
+.work/
