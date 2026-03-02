@@ -1,9 +1,16 @@
-import { Library, ModelTypeUtil, NodePath, TraverserDirection } from "@apicurio/data-models";
+import type { ICommand } from "@apicurio/data-models";
+import {
+    AggregateCommand,
+    CommandFactory,
+    Library,
+    ModelTypeUtil,
+    NodePath,
+    TraverserDirection,
+} from "@apicurio/data-models";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { sessionManager } from "../session-manager.js";
 import { errorResult, successResult, withErrorHandling } from "../util/errors.js";
-import { ClearNodeVisitor } from "../visitors/ClearNodeVisitor.js";
 import { RemoveNodeVisitor } from "../visitors/RemoveNodeVisitor.js";
 import { type SchemaContainer, SchemaContainerVisitor } from "../visitors/SchemaContainerVisitor.js";
 
@@ -28,30 +35,27 @@ export function registerEditTools(server: McpServer): void {
             const entry = sessionManager.getSession(session);
             const doc = entry.document;
 
-            let info = doc.getInfo();
-            if (info == null) {
-                info = doc.createInfo();
-                doc.setInfo(info);
-            }
-
+            const commands: ICommand[] = [];
             if (title !== undefined) {
-                info.setTitle(title);
+                commands.push(CommandFactory.createChangeTitleCommand(title));
             }
             if (description !== undefined) {
-                info.setDescription(description);
+                commands.push(CommandFactory.createChangeDescriptionCommand(description));
             }
             if (version !== undefined) {
-                info.setVersion(version);
+                commands.push(CommandFactory.createChangeVersionCommand(version));
             }
+            new AggregateCommand("set_info", {}, commands).execute(doc);
 
             sessionManager.touchSession(session);
 
+            const info = doc.getInfo();
             return successResult({
                 session,
                 info: {
-                    title: info.getTitle(),
-                    description: info.getDescription(),
-                    version: info.getVersion(),
+                    title: info?.getTitle(),
+                    description: info?.getDescription(),
+                    version: info?.getVersion(),
                 },
             });
         }),
@@ -75,23 +79,16 @@ export function registerEditTools(server: McpServer): void {
                 return errorResult("This operation is only supported for OpenAPI documents");
             }
 
+            // Check for duplicate paths before executing the command
             const oasDoc = doc as any;
-            let paths = oasDoc.getPaths();
-            if (paths == null) {
-                paths = oasDoc.createPaths();
-                oasDoc.setPaths(paths);
-            }
-
-            if (paths.getItem(apiPath) != null) {
+            const paths = oasDoc.getPaths();
+            if (paths != null && paths.getItem(apiPath) != null) {
                 return errorResult(`Path already exists: ${apiPath}`);
             }
 
-            const pathItem = paths.createPathItem();
-            if (pathItemJson) {
-                const pathItemData = JSON.parse(pathItemJson);
-                Library.readNode(pathItemData, pathItem);
-            }
-            paths.addItem(apiPath, pathItem);
+            const pathItemData = pathItemJson ? JSON.parse(pathItemJson) : {};
+            const command = CommandFactory.createAddPathItemCommand(apiPath, pathItemData);
+            command.execute(doc);
 
             sessionManager.touchSession(session);
 
@@ -118,42 +115,37 @@ export function registerEditTools(server: McpServer): void {
             const doc = entry.document;
             const schemaData = JSON.parse(schemaJson);
 
-            // Use a visitor to find the schema container, regardless of spec version
-            const containerVisitor = new SchemaContainerVisitor();
-            Library.visitTree(doc, containerVisitor, TraverserDirection.down);
+            if (ModelTypeUtil.isOpenApiModel(doc)) {
+                // Use the AddSchemaDefinitionCommand for OpenAPI documents.
+                // The command handles OAS 2.0 Definitions vs. OAS 3.x Components differences
+                // and creates the container if it doesn't exist.
+                const command = CommandFactory.createAddSchemaDefinitionCommand(name, schemaData);
+                command.execute(doc);
+            } else {
+                // AsyncAPI fallback: use visitor-based approach since
+                // AddSchemaDefinitionCommand only supports OpenAPI documents
+                const containerVisitor = new SchemaContainerVisitor();
+                Library.visitTree(doc, containerVisitor, TraverserDirection.down);
 
-            if (!containerVisitor.isFound()) {
-                // Container doesn't exist yet - create one based on model type
-                if (ModelTypeUtil.isOpenApiModel(doc)) {
-                    const oasDoc = doc as any;
-                    if (oasDoc.createDefinitions) {
-                        // OpenAPI 2.0
-                        const definitions = oasDoc.createDefinitions();
-                        oasDoc.setDefinitions(definitions);
-                    } else if (oasDoc.createComponents) {
-                        // OpenAPI 3.x
-                        const components = oasDoc.createComponents();
-                        oasDoc.setComponents(components);
-                    }
-                } else if (ModelTypeUtil.isAsyncApiModel(doc)) {
+                if (!containerVisitor.isFound()) {
                     const asyncDoc = doc as any;
                     if (asyncDoc.createComponents) {
                         const components = asyncDoc.createComponents();
                         asyncDoc.setComponents(components);
                     }
+                    // Re-visit to pick up the newly created container
+                    Library.visitTree(doc, containerVisitor, TraverserDirection.down);
                 }
-                // Re-visit to pick up the newly created container
-                Library.visitTree(doc, containerVisitor, TraverserDirection.down);
-            }
 
-            if (!containerVisitor.isFound()) {
-                return errorResult("Unable to find or create a schema container in this document");
-            }
+                if (!containerVisitor.isFound()) {
+                    return errorResult("Unable to find or create a schema container in this document");
+                }
 
-            const container = containerVisitor.container as SchemaContainer;
-            const schemaDef = container.createSchema();
-            Library.readNode(schemaData, schemaDef);
-            container.addSchema(name, schemaDef);
+                const container = containerVisitor.container as SchemaContainer;
+                const schemaDef = container.createSchema();
+                Library.readNode(schemaData, schemaDef);
+                container.addSchema(name, schemaDef);
+            }
 
             sessionManager.touchSession(session);
 
@@ -186,10 +178,8 @@ export function registerEditTools(server: McpServer): void {
                 return errorResult(`No node found at path: ${nodePathStr}`);
             }
 
-            // Clear all properties from the node, then re-populate with new content
-            const clearVisitor = new ClearNodeVisitor();
-            node.accept(clearVisitor);
-            Library.readNode(newValue, node);
+            const command = CommandFactory.createUpdateNodeCommand(node, newValue);
+            command.execute(entry.document);
 
             sessionManager.touchSession(session);
 
