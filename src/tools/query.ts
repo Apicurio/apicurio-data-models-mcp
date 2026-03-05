@@ -8,6 +8,9 @@ import { DocumentInfoVisitor } from "../visitors/DocumentInfoVisitor.js";
 import { OperationCollectorVisitor } from "../visitors/OperationCollectorVisitor.js";
 import { PathCollectorVisitor } from "../visitors/PathCollectorVisitor.js";
 import { SchemaCollectorVisitor } from "../visitors/SchemaCollectorVisitor.js";
+import { SecuritySchemeCollectorVisitor } from "../visitors/SecuritySchemeCollectorVisitor.js";
+import { ServerCollectorVisitor } from "../visitors/ServerCollectorVisitor.js";
+import { TagCollectorVisitor } from "../visitors/TagCollectorVisitor.js";
 
 /**
  * Get document info (shared helper used by both tools and resources).
@@ -99,6 +102,54 @@ export function getDocumentOperations(sessionName: string): any {
     }
 
     return { session: sessionName, operations: [] };
+}
+
+/**
+ * Get list of security schemes (shared helper).
+ *
+ * @param sessionName the session to query
+ * @returns security scheme entries
+ */
+export function getDocumentSecuritySchemes(sessionName: string): any {
+    const entry = sessionManager.getSession(sessionName);
+    const doc = entry.document;
+
+    const visitor = new SecuritySchemeCollectorVisitor();
+    Library.visitTree(doc, visitor, TraverserDirection.down);
+
+    return { session: sessionName, securitySchemes: visitor.securitySchemes };
+}
+
+/**
+ * Get list of servers (shared helper).
+ *
+ * @param sessionName the session to query
+ * @returns server entries
+ */
+export function getDocumentServers(sessionName: string): any {
+    const entry = sessionManager.getSession(sessionName);
+    const doc = entry.document;
+
+    const visitor = new ServerCollectorVisitor();
+    Library.visitTree(doc, visitor, TraverserDirection.down);
+
+    return { session: sessionName, servers: visitor.servers };
+}
+
+/**
+ * Get list of tags (shared helper).
+ *
+ * @param sessionName the session to query
+ * @returns tag entries
+ */
+export function getDocumentTags(sessionName: string): any {
+    const entry = sessionManager.getSession(sessionName);
+    const doc = entry.document;
+
+    const visitor = new TagCollectorVisitor();
+    Library.visitTree(doc, visitor, TraverserDirection.down);
+
+    return { session: sessionName, tags: visitor.tags };
 }
 
 /**
@@ -251,6 +302,72 @@ export function registerQueryTools(server: McpServer): void {
         },
         withErrorHandling(async (args) => {
             return successResult(getDocumentOperations(args.session));
+        }),
+    );
+
+    // ── document_get_schema ───────────────────────────────────────
+    server.tool(
+        "document_get_schema",
+        "Get a specific schema definition by name with its full content",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Schema name (e.g. Pet, Error)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            // Try OAS 2.0 path first, then OAS 3.x / AsyncAPI path
+            let schemaNode = Library.resolveNodePath(NodePath.parse(`/definitions[${name}]`), doc);
+            if (schemaNode == null) {
+                schemaNode = Library.resolveNodePath(NodePath.parse(`/components/schemas[${name}]`), doc);
+            }
+            if (schemaNode == null) {
+                return errorResult(`Schema not found: ${name}`);
+            }
+
+            return successResult({
+                session,
+                name,
+                schema: Library.writeNode(schemaNode),
+            });
+        }),
+    );
+
+    // ── document_list_security_schemes ─────────────────────────────
+    server.tool(
+        "document_list_security_schemes",
+        "List all security scheme definitions in the document",
+        {
+            session: z.string().describe("Session name"),
+        },
+        withErrorHandling(async (args) => {
+            return successResult(getDocumentSecuritySchemes(args.session));
+        }),
+    );
+
+    // ── document_list_servers ──────────────────────────────────────
+    server.tool(
+        "document_list_servers",
+        "List all server definitions in the document",
+        {
+            session: z.string().describe("Session name"),
+        },
+        withErrorHandling(async (args) => {
+            return successResult(getDocumentServers(args.session));
+        }),
+    );
+
+    // ── document_list_tags ────────────────────────────────────────
+    server.tool(
+        "document_list_tags",
+        "List all tag definitions in the document",
+        {
+            session: z.string().describe("Session name"),
+        },
+        withErrorHandling(async (args) => {
+            return successResult(getDocumentTags(args.session));
         }),
     );
 }

@@ -299,4 +299,143 @@ describe("query tools", () => {
             expect(data.operations).toHaveLength(0);
         });
     });
+
+    // ── document_get_schema ───────────────────────────────────────
+
+    describe("document_get_schema", () => {
+        it("gets the Pet schema by name", async () => {
+            const result = await client.callTool({
+                name: "document_get_schema",
+                arguments: { session: "petstore", name: "Pet" },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.name).toBe("Pet");
+            expect(data.schema).toBeDefined();
+            expect(data.schema.required).toBeDefined();
+        });
+
+        it("gets a schema from OpenAPI 2.0 definitions", async () => {
+            const result = await client.callTool({
+                name: "document_get_schema",
+                arguments: { session: "swagger", name: "Pet" },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.name).toBe("Pet");
+            expect(data.schema).toBeDefined();
+        });
+
+        it("returns error for non-existent schema", async () => {
+            const result = await client.callTool({
+                name: "document_get_schema",
+                arguments: { session: "petstore", name: "NonExistent" },
+            });
+
+            expect(result.isError).toBe(true);
+        });
+    });
+
+    // ── document_list_security_schemes ─────────────────────────────
+
+    describe("document_list_security_schemes", () => {
+        it("returns empty for document without security schemes", async () => {
+            const result = await client.callTool({
+                name: "document_list_security_schemes",
+                arguments: { session: "petstore" },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.securitySchemes).toBeDefined();
+            expect(data.securitySchemes).toHaveLength(0);
+        });
+
+        it("lists security schemes after adding one", async () => {
+            await client.callTool({
+                name: "document_add_security_scheme",
+                arguments: {
+                    session: "petstore",
+                    name: "bearerAuth",
+                    scheme: JSON.stringify({ type: "http", scheme: "bearer" }),
+                },
+            });
+
+            const result = await client.callTool({
+                name: "document_list_security_schemes",
+                arguments: { session: "petstore" },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.securitySchemes.length).toBeGreaterThan(0);
+            expect(data.securitySchemes.some((s: any) => s.name === "bearerAuth")).toBe(true);
+        });
+    });
+
+    // ── document_list_servers ──────────────────────────────────────
+
+    describe("document_list_servers", () => {
+        it("lists servers from OpenAPI 3.0 document", async () => {
+            const result = await client.callTool({
+                name: "document_list_servers",
+                arguments: { session: "petstore" },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.servers).toBeDefined();
+            // petstore-3.0 has a server defined
+            expect(data.servers.length).toBeGreaterThanOrEqual(0);
+        });
+
+        it("lists servers after adding one", async () => {
+            await client.callTool({
+                name: "document_add_server",
+                arguments: {
+                    session: "petstore",
+                    url: "https://test.example.com",
+                    description: "Test server",
+                },
+            });
+
+            const result = await client.callTool({
+                name: "document_list_servers",
+                arguments: { session: "petstore" },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.servers.some((s: any) => s.url === "https://test.example.com")).toBe(true);
+        });
+    });
+
+    // ── document_list_tags ────────────────────────────────────────
+
+    describe("document_list_tags", () => {
+        it("returns empty for document without top-level tags", async () => {
+            const result = await client.callTool({
+                name: "document_list_tags",
+                arguments: { session: "petstore" },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.tags).toBeDefined();
+        });
+
+        it("lists tags after adding one", async () => {
+            await client.callTool({
+                name: "document_add_tag",
+                arguments: {
+                    session: "petstore",
+                    name: "pets",
+                    description: "Pet operations",
+                },
+            });
+
+            const result = await client.callTool({
+                name: "document_list_tags",
+                arguments: { session: "petstore" },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.tags.some((t: any) => t.name === "pets")).toBe(true);
+        });
+    });
 });

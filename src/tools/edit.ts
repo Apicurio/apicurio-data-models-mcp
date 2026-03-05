@@ -661,4 +661,444 @@ export function registerEditTools(server: McpServer): void {
             });
         }),
     );
+
+    // ── document_remove_response ──────────────────────────────────
+    server.tool(
+        "document_remove_response",
+        "Remove a response from an operation by status code",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path (e.g. /pets)"),
+            method: z.string().describe("HTTP method (get, post, put, etc.)"),
+            statusCode: z.string().describe("HTTP status code to remove (e.g. 200, 404, default)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method, statusCode } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const operation = resolveOperation(doc, apiPath, method);
+            if (isErrorResult(operation)) {
+                return operation;
+            }
+
+            const command = CommandFactory.createDeleteResponseCommand(operation as any, statusCode);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method.toUpperCase(),
+                statusCode,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_response_definition ──────────────────────────
+    server.tool(
+        "document_add_response_definition",
+        "Add a reusable response definition to the document",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Response definition name (e.g. NotFound, ErrorResponse)"),
+            response: z.string().describe("JSON string with the response definition"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name, response: responseJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            // Ensure the responses container exists in components before
+            // executing the command (it requires an initialized map).
+            const comp = (doc as any).getComponents?.();
+            if (comp && typeof comp.getResponses === "function" && comp.getResponses() == null) {
+                // Bootstrap the responses map by adding and removing a placeholder
+                const placeholder = comp.createResponse();
+                comp.addResponse("__placeholder__", placeholder);
+                comp.removeResponse("__placeholder__");
+            }
+
+            const responseObj = JSON.parse(responseJson);
+            const command = CommandFactory.createAddResponseDefinitionCommand(name, responseObj);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_remove_parameter ─────────────────────────────────
+    server.tool(
+        "document_remove_parameter",
+        "Remove a parameter from a path item or operation",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path (e.g. /pets)"),
+            method: z.string().optional().describe("HTTP method (omit to remove from path item level)"),
+            name: z.string().describe("Parameter name to remove"),
+            location: z.string().describe("Parameter location: query, path, header, cookie"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method, name, location } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            // Resolve parent: operation if method is given, otherwise path item
+            let parent: Node | CallToolResult;
+            if (method) {
+                parent = resolveOperation(doc, apiPath, method);
+            } else {
+                parent = resolvePathItem(doc, apiPath);
+            }
+            if (isErrorResult(parent)) {
+                return parent;
+            }
+
+            const command = CommandFactory.createDeleteParameterCommand(parent as any, name, location);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method?.toUpperCase(),
+                parameter: { name, location },
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_security_scheme ────────────────────────────
+    server.tool(
+        "document_remove_security_scheme",
+        "Remove a security scheme definition from the document",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Security scheme name to remove"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const command = CommandFactory.createDeleteSecuritySchemeCommand(name);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_tag ──────────────────────────────────────────
+    server.tool(
+        "document_add_tag",
+        "Add a tag definition to the document",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Tag name"),
+            description: z.string().optional().describe("Tag description"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name, description } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const command = CommandFactory.createAddTagCommand(name, description ?? "");
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_add_server ───────────────────────────────────────
+    server.tool(
+        "document_add_server",
+        "Add a server to the document or to a specific path/operation",
+        {
+            session: z.string().describe("Session name"),
+            url: z.string().describe("Server URL (e.g. https://api.example.com/v1)"),
+            description: z.string().optional().describe("Server description"),
+            nodePath: z
+                .string()
+                .optional()
+                .describe(
+                    "Node path to add the server to (e.g. /paths[/pets]); if omitted, adds to document level",
+                ),
+        },
+        withErrorHandling(async (args) => {
+            const { session, url, description, nodePath: nodePathStr } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            let parent: any = doc;
+            if (nodePathStr) {
+                const np = NodePath.parse(nodePathStr);
+                const resolved = Library.resolveNodePath(np, doc);
+                if (resolved == null) {
+                    return errorResult(`No node found at path: ${nodePathStr}`);
+                }
+                parent = resolved;
+            }
+
+            const command = CommandFactory.createAddServerCommand(parent, url, description ?? "");
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                url,
+                nodePath: nodePathStr ?? "/",
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_set_contact ──────────────────────────────────────
+    server.tool(
+        "document_set_contact",
+        "Set the contact information in the document info",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().optional().describe("Contact name"),
+            email: z.string().optional().describe("Contact email"),
+            url: z.string().optional().describe("Contact URL"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name, email, url } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            const command = CommandFactory.createChangeContactCommand(name ?? "", email ?? "", url ?? "");
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                contact: {
+                    name: name ?? "",
+                    email: email ?? "",
+                    url: url ?? "",
+                },
+                updated: true,
+            });
+        }),
+    );
+
+    // ── document_set_license ──────────────────────────────────────
+    server.tool(
+        "document_set_license",
+        "Set the license information in the document info",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("License name (e.g. Apache 2.0, MIT)"),
+            url: z.string().optional().describe("License URL"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name, url } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            const command = CommandFactory.createChangeLicenseCommand(name, url ?? "");
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                license: {
+                    name,
+                    url: url ?? "",
+                },
+                updated: true,
+            });
+        }),
+    );
+
+    // ── document_remove_schema ────────────────────────────────────
+    server.tool(
+        "document_remove_schema",
+        "Remove a schema definition from the document",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Schema name to remove (e.g. Pet, Error)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const command = CommandFactory.createDeleteSchemaCommand(name);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_path ──────────────────────────────────────
+    server.tool(
+        "document_remove_path",
+        "Remove a path item from the document",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path to remove (e.g. /pets/{petId})"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const command = CommandFactory.createDeletePathCommand(apiPath);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_channel ──────────────────────────────────────
+    server.tool(
+        "document_add_channel",
+        "Add a channel item to an AsyncAPI document",
+        {
+            session: z.string().describe("Session name"),
+            channel: z.string().describe("Channel name (e.g. user/signedup)"),
+            channelItem: z.string().optional().describe("JSON string with channel item content"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, channel, channelItem: channelItemJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isAsyncApiModel(doc)) {
+                return errorResult("This operation is only supported for AsyncAPI documents");
+            }
+
+            const channelItemData = channelItemJson ? JSON.parse(channelItemJson) : {};
+            const command = CommandFactory.createAddChannelItemCommand(channel, channelItemData);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                channel,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_add_response_header ──────────────────────────────
+    server.tool(
+        "document_add_response_header",
+        "Add a header to an OpenAPI response",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z
+                .string()
+                .describe("Node path to the response (e.g. /paths[/pets]/get/responses[200])"),
+            name: z.string().describe("Header name (e.g. X-Rate-Limit)"),
+            description: z.string().optional().describe("Header description"),
+            schemaType: z.string().optional().describe("Schema type (defaults to string)"),
+            schemaRef: z.string().optional().describe("Schema $ref string"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, name, description, schemaType, schemaRef } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const response = Library.resolveNodePath(np, doc);
+
+            if (response == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const command = CommandFactory.createAddResponseHeaderCommand(
+                response as any,
+                name,
+                description ?? "",
+                schemaType ?? "string",
+                schemaRef ?? "",
+            );
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                header: name,
+                added: true,
+            });
+        }),
+    );
 }

@@ -54,6 +54,15 @@ List all active document sessions.
 
 _No arguments._
 
+### `document_export`
+
+Export the document content as a JSON or YAML string.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `format` | `"json"` \| `"yaml"` | no | Output format; defaults to the session's current format |
+
 ---
 
 ## Query
@@ -108,6 +117,39 @@ Get any node by its node path (e.g. `/paths[/pets]/get`, `/info`,
 
 List all operations across the entire document with path, method, operationId, summary, and
 tags.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+
+### `document_get_schema`
+
+Get a specific schema definition by name with its full content.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Schema name (e.g. `Pet`, `Error`) |
+
+### `document_list_security_schemes`
+
+List all security scheme definitions in the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+
+### `document_list_servers`
+
+List all server definitions in the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+
+### `document_list_tags`
+
+List all tag definitions in the document.
 
 | Argument | Type | Required | Description |
 |----------|------|----------|-------------|
@@ -256,6 +298,131 @@ Add a security scheme definition to the document.
 | `session` | string | yes | Session name |
 | `name` | string | yes | Security scheme name (e.g. `bearerAuth`, `apiKey`) |
 | `scheme` | string | yes | JSON string with the security scheme definition |
+
+### `document_remove_response`
+
+Remove a response from an operation by status code.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path (e.g. `/pets`) |
+| `method` | string | yes | HTTP method |
+| `statusCode` | string | yes | HTTP status code to remove (e.g. `200`, `404`, `default`) |
+
+### `document_add_response_definition`
+
+Add a reusable response definition to the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Response definition name (e.g. `NotFound`, `ErrorResponse`) |
+| `response` | string | yes | JSON string with the response definition |
+
+### `document_remove_parameter`
+
+Remove a parameter from a path item or operation.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path |
+| `method` | string | no | HTTP method (omit to remove from path item level) |
+| `name` | string | yes | Parameter name to remove |
+| `location` | string | yes | Parameter location: `query`, `path`, `header`, `cookie` |
+
+### `document_remove_security_scheme`
+
+Remove a security scheme definition from the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Security scheme name to remove |
+
+### `document_add_tag`
+
+Add a tag definition to the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Tag name |
+| `description` | string | no | Tag description |
+
+### `document_add_server`
+
+Add a server to the document or to a specific path/operation.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `url` | string | yes | Server URL (e.g. `https://api.example.com/v1`) |
+| `description` | string | no | Server description |
+| `nodePath` | string | no | Node path to add the server to; if omitted, adds to document level |
+
+### `document_set_contact`
+
+Set the contact information in the document info.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | no | Contact name |
+| `email` | string | no | Contact email |
+| `url` | string | no | Contact URL |
+
+### `document_set_license`
+
+Set the license information in the document info.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | License name (e.g. `Apache 2.0`, `MIT`) |
+| `url` | string | no | License URL |
+
+### `document_remove_schema`
+
+Remove a schema definition from the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Schema name to remove (e.g. `Pet`, `Error`) |
+
+### `document_remove_path`
+
+Remove a path item from the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path to remove (e.g. `/pets/{petId}`) |
+
+### `document_add_channel`
+
+Add a channel item to an AsyncAPI document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `channel` | string | yes | Channel name (e.g. `user/signedup`) |
+| `channelItem` | string | no | JSON string with channel item content |
+
+### `document_add_response_header`
+
+Add a header to an OpenAPI response.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the response (e.g. `/paths[/pets]/get/responses[200]`) |
+| `name` | string | yes | Header name (e.g. `X-Rate-Limit`) |
+| `description` | string | no | Header description |
+| `schemaType` | string | no | Schema type (defaults to `string`) |
+| `schemaRef` | string | no | Schema `$ref` string |
 
 ---
 

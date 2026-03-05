@@ -189,4 +189,30 @@ export function registerSessionTools(server: McpServer): void {
             return successResult({ sessions });
         }),
     );
+
+    // ── document_export ───────────────────────────────────────────
+    server.tool(
+        "document_export",
+        "Export the document content as a JSON or YAML string",
+        {
+            session: z.string().describe("Session name"),
+            format: z
+                .enum(["json", "yaml"])
+                .optional()
+                .describe("Output format; defaults to the session's current format"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, format } = args;
+            const entry = sessionManager.getSession(session);
+            const outputFormat: DocumentFormat = format ?? entry.format;
+            const json = Library.writeNode(entry.document);
+            const content = serializeContent(json, outputFormat);
+
+            return successResult({
+                session,
+                format: outputFormat,
+                content,
+            });
+        }),
+    );
 }

@@ -291,4 +291,87 @@ describe("session tools", () => {
             expect(data.sessions.map((s: any) => s.name).sort()).toEqual(["api1", "api2"]);
         });
     });
+
+    describe("document_export", () => {
+        it("exports document as JSON", async () => {
+            await client.callTool({
+                name: "document_load",
+                arguments: {
+                    session: "petstore",
+                    filePath: path.join(FIXTURES, "petstore-3.0.json"),
+                },
+            });
+
+            const result = await client.callTool({
+                name: "document_export",
+                arguments: {
+                    session: "petstore",
+                    format: "json",
+                },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.format).toBe("json");
+            expect(data.content).toBeDefined();
+
+            // The content should be valid JSON
+            const parsed = JSON.parse(data.content);
+            expect(parsed.openapi).toBe("3.0.2");
+            expect(parsed.info.title).toBe("Petstore");
+        });
+
+        it("exports document as YAML", async () => {
+            await client.callTool({
+                name: "document_load",
+                arguments: {
+                    session: "petstore",
+                    filePath: path.join(FIXTURES, "petstore-3.0.json"),
+                },
+            });
+
+            const result = await client.callTool({
+                name: "document_export",
+                arguments: {
+                    session: "petstore",
+                    format: "yaml",
+                },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.format).toBe("yaml");
+            expect(data.content).toContain("openapi:");
+            expect(data.content).toContain("Petstore");
+        });
+
+        it("defaults to session format when format not specified", async () => {
+            await client.callTool({
+                name: "document_load",
+                arguments: {
+                    session: "petstore",
+                    filePath: path.join(FIXTURES, "petstore-3.0.json"),
+                },
+            });
+
+            const result = await client.callTool({
+                name: "document_export",
+                arguments: {
+                    session: "petstore",
+                },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.format).toBe("json");
+        });
+
+        it("returns error for non-existent session", async () => {
+            const result = await client.callTool({
+                name: "document_export",
+                arguments: {
+                    session: "missing",
+                },
+            });
+
+            expect(result.isError).toBe(true);
+        });
+    });
 });
