@@ -215,4 +215,38 @@ export function registerSessionTools(server: McpServer): void {
             });
         }),
     );
+
+    // ── document_clone_session ───────────────────────────────────
+    server.tool(
+        "document_clone_session",
+        "Clone an existing session into a new session with a deep copy of the document",
+        {
+            session: z.string().describe("Source session name to clone"),
+            newSession: z.string().describe("Name for the cloned session"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, newSession } = args;
+            const entry = sessionManager.getSession(session);
+
+            const clonedDocument = Library.cloneDocument(entry.document);
+
+            sessionManager.addSession({
+                name: newSession,
+                document: clonedDocument,
+                modelType: entry.modelType,
+                filePath: null,
+                format: entry.format,
+                createdAt: new Date(),
+                lastModifiedAt: new Date(),
+            });
+
+            return successResult({
+                sourceSession: session,
+                newSession,
+                modelType: fromLibModelType(entry.modelType),
+                format: entry.format,
+                cloned: true,
+            });
+        }),
+    );
 }

@@ -374,4 +374,102 @@ describe("session tools", () => {
             expect(result.isError).toBe(true);
         });
     });
+
+    describe("document_clone_session", () => {
+        it("clones a session with an independent document copy", async () => {
+            await client.callTool({
+                name: "document_load",
+                arguments: {
+                    session: "original",
+                    filePath: path.join(FIXTURES, "petstore-3.0.json"),
+                },
+            });
+
+            const result = await client.callTool({
+                name: "document_clone_session",
+                arguments: {
+                    session: "original",
+                    newSession: "clone",
+                },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.cloned).toBe(true);
+            expect(data.sourceSession).toBe("original");
+            expect(data.newSession).toBe("clone");
+            expect(data.modelType).toBe("openapi3");
+            expect(data.format).toBe("json");
+
+            // Verify the clone is listed
+            const sessions = await client.callTool({
+                name: "document_list_sessions",
+                arguments: {},
+            });
+            const sessionData = JSON.parse((sessions.content as any)[0].text);
+            expect(sessionData.sessions).toHaveLength(2);
+
+            // Modify the clone and verify original is unaffected
+            await client.callTool({
+                name: "document_set_info",
+                arguments: {
+                    session: "clone",
+                    title: "Modified Clone",
+                },
+            });
+
+            const originalInfo = await client.callTool({
+                name: "document_get_info",
+                arguments: { session: "original" },
+            });
+            const originalData = JSON.parse((originalInfo.content as any)[0].text);
+            expect(originalData.title).toBe("Petstore");
+
+            const cloneInfo = await client.callTool({
+                name: "document_get_info",
+                arguments: { session: "clone" },
+            });
+            const cloneData = JSON.parse((cloneInfo.content as any)[0].text);
+            expect(cloneData.title).toBe("Modified Clone");
+        });
+
+        it("returns error for non-existent source session", async () => {
+            const result = await client.callTool({
+                name: "document_clone_session",
+                arguments: {
+                    session: "nonexistent",
+                    newSession: "clone",
+                },
+            });
+
+            expect(result.isError).toBe(true);
+        });
+
+        it("returns error when new session name already exists", async () => {
+            await client.callTool({
+                name: "document_load",
+                arguments: {
+                    session: "existing",
+                    filePath: path.join(FIXTURES, "petstore-3.0.json"),
+                },
+            });
+
+            await client.callTool({
+                name: "document_create",
+                arguments: {
+                    session: "taken",
+                    modelType: "openapi3",
+                },
+            });
+
+            const result = await client.callTool({
+                name: "document_clone_session",
+                arguments: {
+                    session: "existing",
+                    newSession: "taken",
+                },
+            });
+
+            expect(result.isError).toBe(true);
+        });
+    });
 });

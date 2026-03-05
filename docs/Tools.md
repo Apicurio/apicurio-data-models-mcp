@@ -63,6 +63,15 @@ Export the document content as a JSON or YAML string.
 | `session` | string | yes | Session name |
 | `format` | `"json"` \| `"yaml"` | no | Output format; defaults to the session's current format |
 
+### `document_clone_session`
+
+Clone an existing session into a new session with a deep copy of the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Source session name to clone |
+| `newSession` | string | yes | Name for the cloned session |
+
 ---
 
 ## Query
@@ -423,6 +432,87 @@ Add a header to an OpenAPI response.
 | `description` | string | no | Header description |
 | `schemaType` | string | no | Schema type (defaults to `string`) |
 | `schemaRef` | string | no | Schema `$ref` string |
+
+### `document_remove_request_body`
+
+Remove the request body from an operation (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path (e.g. `/pets`) |
+| `method` | string | yes | HTTP method (e.g. `post`, `put`, `patch`) |
+
+### `document_update_security_scheme`
+
+Update an existing security scheme definition.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Security scheme name to update |
+| `scheme` | string | yes | JSON string with the updated security scheme definition |
+
+### `document_remove_tag`
+
+Remove a tag definition from the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Tag name to remove |
+
+### `document_rename_tag`
+
+Rename a tag across the entire document (updates both the tag definition and all operation
+references).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `oldName` | string | yes | Current tag name |
+| `newName` | string | yes | New tag name |
+
+### `document_remove_server`
+
+Remove a server from the document or a specific scope.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `url` | string | yes | Server URL to remove |
+| `nodePath` | string | no | Node path for scoped servers; if omitted, removes from document level |
+
+### `document_add_extension`
+
+Add a vendor extension (`x-*` property) to any node in the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the parent (e.g. `/info`, `/paths[/pets]/get`) |
+| `name` | string | yes | Extension name (must start with `x-`) |
+| `value` | string | yes | JSON string with the extension value |
+
+### `document_remove_extension`
+
+Remove a vendor extension (`x-*` property) from a node.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the parent |
+| `name` | string | yes | Extension name to remove (must start with `x-`) |
+
+### `document_remove_response_header`
+
+Remove a header from an OpenAPI response.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the response (e.g. `/paths[/pets]/get/responses[200]`) |
+| `name` | string | yes | Header name to remove (e.g. `X-Rate-Limit`) |
 
 ---
 

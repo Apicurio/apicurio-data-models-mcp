@@ -50,13 +50,14 @@ document to operate on.
 
 ### Tool Categories
 
-- **Session tools** (6): `document_load`, `document_create`, `document_save`,
-  `document_close`, `document_list_sessions`, `document_export`
+- **Session tools** (7): `document_load`, `document_create`, `document_save`,
+  `document_close`, `document_list_sessions`, `document_export`,
+  `document_clone_session`
 - **Query tools** (10): `document_get_info`, `document_list_paths`, `document_get_operation`,
   `document_list_schemas`, `document_get_node`, `document_list_operations`,
   `document_get_schema`, `document_list_security_schemes`, `document_list_servers`,
   `document_list_tags`
-- **Edit tools** (25): `document_set_info`, `document_add_path`, `document_add_schema`,
+- **Edit tools** (33): `document_set_info`, `document_add_path`, `document_add_schema`,
   `document_set_node`, `document_remove_node`, `document_add_operation`,
   `document_remove_operation`, `document_add_response`, `document_add_parameter`,
   `document_add_request_body`, `document_add_media_type`, `document_set_media_type_schema`,
@@ -64,7 +65,11 @@ document to operate on.
   `document_add_response_definition`, `document_remove_parameter`,
   `document_remove_security_scheme`, `document_add_tag`, `document_add_server`,
   `document_set_contact`, `document_set_license`, `document_remove_schema`,
-  `document_remove_path`, `document_add_channel`, `document_add_response_header`
+  `document_remove_path`, `document_add_channel`, `document_add_response_header`,
+  `document_remove_request_body`, `document_update_security_scheme`,
+  `document_remove_tag`, `document_rename_tag`, `document_remove_server`,
+  `document_add_extension`, `document_remove_extension`,
+  `document_remove_response_header`
 - **Validation tool** (1): `document_validate`
 - **Transform tools** (2): `document_transform`, `document_dereference`
 

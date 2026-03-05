@@ -1101,4 +1101,309 @@ export function registerEditTools(server: McpServer): void {
             });
         }),
     );
+
+    // ── document_remove_request_body ─────────────────────────────
+    server.tool(
+        "document_remove_request_body",
+        "Remove the request body from an operation (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path (e.g. /pets)"),
+            method: z.string().describe("HTTP method (e.g. post, put, patch)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult(
+                    "Request bodies are not supported in OpenAPI 2.0. Use parameters with 'in: body' instead.",
+                );
+            }
+
+            const operation = resolveOperation(doc, apiPath, method);
+            if (isErrorResult(operation)) {
+                return operation;
+            }
+
+            const command = CommandFactory.createDeleteRequestBodyCommand(operation as any);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method.toUpperCase(),
+                requestBodyRemoved: true,
+            });
+        }),
+    );
+
+    // ── document_update_security_scheme ──────────────────────────
+    server.tool(
+        "document_update_security_scheme",
+        "Update an existing security scheme definition",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Security scheme name to update"),
+            scheme: z.string().describe("JSON string with the updated security scheme definition"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name, scheme: schemeJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const schemeObj = JSON.parse(schemeJson);
+            const command = CommandFactory.createUpdateSecuritySchemeCommand(name, schemeObj);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                updated: true,
+            });
+        }),
+    );
+
+    // ── document_remove_tag ─────────────────────────────────────
+    server.tool(
+        "document_remove_tag",
+        "Remove a tag definition from the document",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Tag name to remove"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const command = CommandFactory.createDeleteTagCommand(name);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_rename_tag ─────────────────────────────────────
+    server.tool(
+        "document_rename_tag",
+        "Rename a tag across the entire document (updates both the tag definition and all operation references)",
+        {
+            session: z.string().describe("Session name"),
+            oldName: z.string().describe("Current tag name"),
+            newName: z.string().describe("New tag name"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, oldName, newName } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const command = CommandFactory.createRenameTagCommand(oldName, newName);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                oldName,
+                newName,
+                renamed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_server ──────────────────────────────────
+    server.tool(
+        "document_remove_server",
+        "Remove a server from the document or a specific scope",
+        {
+            session: z.string().describe("Session name"),
+            url: z.string().describe("Server URL to remove"),
+            nodePath: z
+                .string()
+                .optional()
+                .describe(
+                    "Node path for scoped servers (e.g. /paths[/pets]); if omitted, removes from document level",
+                ),
+        },
+        withErrorHandling(async (args) => {
+            const { session, url, nodePath: nodePathStr } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            let parent: any = doc;
+            if (nodePathStr) {
+                const np = NodePath.parse(nodePathStr);
+                const resolved = Library.resolveNodePath(np, doc);
+                if (resolved == null) {
+                    return errorResult(`No node found at path: ${nodePathStr}`);
+                }
+                parent = resolved;
+            }
+
+            const command = CommandFactory.createDeleteServerCommand(parent, url);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                url,
+                nodePath: nodePathStr ?? "/",
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_extension ──────────────────────────────────
+    server.tool(
+        "document_add_extension",
+        "Add a vendor extension (x-* property) to any node in the document",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the parent (e.g. /info, /paths[/pets]/get)"),
+            name: z.string().describe("Extension name (must start with x-)"),
+            value: z.string().describe("JSON string with the extension value"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, name, value: valueJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!name.startsWith("x-")) {
+                return errorResult("Extension name must start with 'x-'");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const parent = Library.resolveNodePath(np, doc);
+
+            if (parent == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const extensionValue = JSON.parse(valueJson);
+            const command = CommandFactory.createAddExtensionCommand(parent as any, name, extensionValue);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                name,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_remove_extension ───────────────────────────────
+    server.tool(
+        "document_remove_extension",
+        "Remove a vendor extension (x-* property) from a node",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the parent"),
+            name: z.string().describe("Extension name to remove (must start with x-)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!name.startsWith("x-")) {
+                return errorResult("Extension name must start with 'x-'");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const parent = Library.resolveNodePath(np, doc);
+
+            if (parent == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const command = CommandFactory.createDeleteExtensionCommand(parent as any, name);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                name,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_response_header ─────────────────────────
+    server.tool(
+        "document_remove_response_header",
+        "Remove a header from an OpenAPI response",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z
+                .string()
+                .describe("Node path to the response (e.g. /paths[/pets]/get/responses[200])"),
+            name: z.string().describe("Header name to remove (e.g. X-Rate-Limit)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const response = Library.resolveNodePath(np, doc);
+
+            if (response == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const command = CommandFactory.createDeleteResponseHeaderCommand(response as any, name);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                header: name,
+                removed: true,
+            });
+        }),
+    );
 }
