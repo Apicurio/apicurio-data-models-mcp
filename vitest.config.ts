@@ -6,7 +6,7 @@ export default defineConfig({
         alias: {
             "@apicurio/data-models": path.resolve(
                 __dirname,
-                "node_modules/@apicurio/data-models/index.js",
+                "node_modules/@apicurio/data-models/dist/index.js",
             ),
         },
     },

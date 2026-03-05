@@ -1,4 +1,4 @@
-import type { ICommand } from "@apicurio/data-models";
+import type { Document, ICommand, Node } from "@apicurio/data-models";
 import {
     AggregateCommand,
     CommandFactory,
@@ -8,11 +8,57 @@ import {
     TraverserDirection,
 } from "@apicurio/data-models";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { sessionManager } from "../session-manager.js";
 import { errorResult, successResult, withErrorHandling } from "../util/errors.js";
 import { RemoveNodeVisitor } from "../visitors/RemoveNodeVisitor.js";
 import { type SchemaContainer, SchemaContainerVisitor } from "../visitors/SchemaContainerVisitor.js";
+
+const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch"] as const;
+
+/**
+ * Resolve a path item node from a document by API path string.
+ *
+ * @param doc the document to resolve from
+ * @param apiPath the API path (e.g. `/pets`)
+ * @returns the resolved Node, or a CallToolResult error
+ */
+function resolvePathItem(doc: Document, apiPath: string): Node | CallToolResult {
+    const np = NodePath.parse(`/paths[${apiPath}]`);
+    const node = Library.resolveNodePath(np, doc);
+    if (node == null) {
+        return errorResult(`Path not found: ${apiPath}`);
+    }
+    return node;
+}
+
+/**
+ * Resolve an operation node from a document by API path and HTTP method.
+ *
+ * @param doc the document to resolve from
+ * @param apiPath the API path (e.g. `/pets`)
+ * @param method the HTTP method (e.g. `get`)
+ * @returns the resolved Node, or a CallToolResult error
+ */
+function resolveOperation(doc: Document, apiPath: string, method: string): Node | CallToolResult {
+    const np = NodePath.parse(`/paths[${apiPath}]/${method.toLowerCase()}`);
+    const node = Library.resolveNodePath(np, doc);
+    if (node == null) {
+        return errorResult(`No ${method.toUpperCase()} operation on path ${apiPath}`);
+    }
+    return node;
+}
+
+/**
+ * Type guard to distinguish a CallToolResult error from a resolved Node.
+ *
+ * @param value the value to check
+ * @returns true if the value is a CallToolResult (error), false if it's a Node
+ */
+function isErrorResult(value: Node | CallToolResult): value is CallToolResult {
+    return value != null && typeof value === "object" && "content" in value;
+}
 
 /**
  * Register all edit tools (semantic + generic) on the given MCP server.
@@ -229,6 +275,389 @@ export function registerEditTools(server: McpServer): void {
                 session,
                 nodePath: nodePathStr,
                 removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_operation ─────────────────────────────────────
+    server.tool(
+        "document_add_operation",
+        "Add a new HTTP operation to an existing path item",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path (e.g. /pets)"),
+            method: z.string().describe("HTTP method (get, post, put, delete, patch, options, head)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const methodLower = method.toLowerCase();
+            if (!HTTP_METHODS.includes(methodLower as any)) {
+                return errorResult(
+                    `Invalid HTTP method: ${method}. Must be one of: ${HTTP_METHODS.join(", ")}`,
+                );
+            }
+
+            const pathItem = resolvePathItem(doc, apiPath);
+            if (isErrorResult(pathItem)) {
+                return pathItem;
+            }
+
+            // Check if the operation already exists
+            const getter = `get${methodLower.charAt(0).toUpperCase()}${methodLower.slice(1)}` as string;
+            if ((pathItem as any)[getter]?.() != null) {
+                return errorResult(`Operation ${method.toUpperCase()} already exists on path ${apiPath}`);
+            }
+
+            const command = CommandFactory.createCreateOperationCommand(pathItem as any, methodLower);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method.toUpperCase(),
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_remove_operation ──────────────────────────────────
+    server.tool(
+        "document_remove_operation",
+        "Remove a specific HTTP operation from a path item",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path (e.g. /pets)"),
+            method: z.string().describe("HTTP method to remove"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const methodLower = method.toLowerCase();
+            const pathItem = resolvePathItem(doc, apiPath);
+            if (isErrorResult(pathItem)) {
+                return pathItem;
+            }
+
+            // Check that the operation exists before trying to delete
+            const getter = `get${methodLower.charAt(0).toUpperCase()}${methodLower.slice(1)}` as string;
+            if ((pathItem as any)[getter]?.() == null) {
+                return errorResult(`No ${method.toUpperCase()} operation on path ${apiPath}`);
+            }
+
+            const command = CommandFactory.createDeleteOperationCommand(pathItem as any, methodLower);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method.toUpperCase(),
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_response ─────────────────────────────────────
+    server.tool(
+        "document_add_response",
+        "Add a response to an operation by status code and description",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path (e.g. /pets)"),
+            method: z.string().describe("HTTP method (get, post, put, etc.)"),
+            statusCode: z.string().describe("HTTP status code (e.g. 200, 404, default)"),
+            description: z.string().describe("Response description"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method, statusCode, description } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const operation = resolveOperation(doc, apiPath, method);
+            if (isErrorResult(operation)) {
+                return operation;
+            }
+
+            const command = CommandFactory.createAddResponseCommand(
+                operation as any,
+                statusCode,
+                description,
+            );
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method.toUpperCase(),
+                statusCode,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_add_parameter ────────────────────────────────────
+    server.tool(
+        "document_add_parameter",
+        "Add a parameter to a path item or operation",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path (e.g. /pets)"),
+            method: z.string().optional().describe("HTTP method (omit to add to path item level)"),
+            name: z.string().describe("Parameter name"),
+            location: z.string().describe("Parameter location: query, path, header, cookie"),
+            description: z.string().optional().describe("Parameter description"),
+            required: z.boolean().optional().describe("Whether the parameter is required"),
+            type: z
+                .string()
+                .optional()
+                .describe("Schema type (string, integer, number, boolean, array). Defaults to string"),
+        },
+        withErrorHandling(async (args) => {
+            const {
+                session,
+                path: apiPath,
+                method,
+                name,
+                location,
+                description: desc,
+                required: req,
+                type: paramType,
+            } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            // Resolve parent: operation if method is given, otherwise path item
+            let parent: Node | CallToolResult;
+            if (method) {
+                parent = resolveOperation(doc, apiPath, method);
+            } else {
+                parent = resolvePathItem(doc, apiPath);
+            }
+            if (isErrorResult(parent)) {
+                return parent;
+            }
+
+            const isRequired = req ?? location === "path";
+            const schemaType = paramType ?? "string";
+
+            const command = CommandFactory.createAddParameterCommand(
+                parent as any,
+                name,
+                location,
+                desc ?? "",
+                isRequired,
+                schemaType,
+            );
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method?.toUpperCase(),
+                parameter: { name, location, required: isRequired, type: schemaType },
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_add_request_body ──────────────────────────────────
+    server.tool(
+        "document_add_request_body",
+        "Add an empty request body to an operation (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path (e.g. /pets)"),
+            method: z.string().describe("HTTP method (e.g. post, put, patch)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult(
+                    "Request bodies are not supported in OpenAPI 2.0. Use parameters with 'in: body' instead.",
+                );
+            }
+
+            const operation = resolveOperation(doc, apiPath, method);
+            if (isErrorResult(operation)) {
+                return operation;
+            }
+
+            const command = CommandFactory.createAddRequestBodyCommand(operation as any);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method.toUpperCase(),
+                requestBodyAdded: true,
+            });
+        }),
+    );
+
+    // ── document_add_media_type ───────────────────────────────────
+    server.tool(
+        "document_add_media_type",
+        "Add a media type to a request body or response (OpenAPI 3.x)",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z
+                .string()
+                .describe(
+                    "Node path to the request body or response (e.g. /paths[/pets]/post/requestBody or /paths[/pets]/get/responses[200])",
+                ),
+            mediaType: z.string().describe("Media type string (e.g. application/json, application/xml)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, mediaType } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const parent = Library.resolveNodePath(np, doc);
+
+            if (parent == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const command = CommandFactory.createAddMediaTypeCommand(parent, mediaType);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                mediaType,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_set_media_type_schema ─────────────────────────────
+    server.tool(
+        "document_set_media_type_schema",
+        "Set the schema for a media type, either as a $ref or inline type",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z
+                .string()
+                .describe(
+                    "Node path to the media type (e.g. /paths[/pets]/post/requestBody/content[application/json])",
+                ),
+            schemaRef: z.string().optional().describe("Schema $ref string (e.g. #/components/schemas/Pet)"),
+            schemaType: z
+                .string()
+                .optional()
+                .describe("Inline schema type (string, integer, object, array, etc.)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, schemaRef, schemaType } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (!schemaRef && !schemaType) {
+                return errorResult("Either schemaRef or schemaType must be provided");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const mediaTypeNode = Library.resolveNodePath(np, doc);
+
+            if (mediaTypeNode == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const command = CommandFactory.createChangeMediaTypeSchemaCommand(
+                mediaTypeNode as any,
+                schemaRef ?? "",
+                schemaType ?? "",
+            );
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                schemaRef: schemaRef || undefined,
+                schemaType: schemaType || undefined,
+                updated: true,
+            });
+        }),
+    );
+
+    // ── document_add_security_scheme ──────────────────────────────
+    server.tool(
+        "document_add_security_scheme",
+        "Add a security scheme definition to the document",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Security scheme name (e.g. bearerAuth, apiKey)"),
+            scheme: z.string().describe("JSON string with the security scheme definition"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name, scheme: schemeJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const schemeObj = JSON.parse(schemeJson);
+            const command = CommandFactory.createAddSecuritySchemeCommand(name, schemeObj);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                added: true,
             });
         }),
     );

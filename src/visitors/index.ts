@@ -1,5 +1,7 @@
 export { ClearNodeVisitor } from "./ClearNodeVisitor.js";
 export { DocumentInfoVisitor } from "./DocumentInfoVisitor.js";
+export type { AsyncOperationEntry, OperationEntry } from "./OperationCollectorVisitor.js";
+export { OperationCollectorVisitor } from "./OperationCollectorVisitor.js";
 export type { ChannelEntry, PathEntry } from "./PathCollectorVisitor.js";
 export { PathCollectorVisitor } from "./PathCollectorVisitor.js";
 export { RemoveNodeVisitor } from "./RemoveNodeVisitor.js";

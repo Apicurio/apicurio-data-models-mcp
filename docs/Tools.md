@@ -104,6 +104,15 @@ Get any node by its node path (e.g. `/paths[/pets]/get`, `/info`,
 | `session` | string | yes | Session name |
 | `nodePath` | string | yes | Node path string (e.g. `/info`, `/paths[/pets]/get`) |
 
+### `document_list_operations`
+
+List all operations across the entire document with path, method, operationId, summary, and
+tags.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+
 ---
 
 ## Edit
@@ -159,6 +168,94 @@ Remove any node at a given node path.
 |----------|------|----------|-------------|
 | `session` | string | yes | Session name |
 | `nodePath` | string | yes | Node path to remove (e.g. `/paths[/pets]`, `/components/schemas[Pet]`) |
+
+### `document_add_operation`
+
+Add a new HTTP operation to an existing path item.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path (e.g. `/pets`) |
+| `method` | string | yes | HTTP method (`get`, `post`, `put`, `delete`, `patch`, `options`, `head`) |
+
+### `document_remove_operation`
+
+Remove a specific HTTP operation from a path item.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path (e.g. `/pets`) |
+| `method` | string | yes | HTTP method to remove |
+
+### `document_add_response`
+
+Add a response to an operation by status code and description.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path |
+| `method` | string | yes | HTTP method |
+| `statusCode` | string | yes | HTTP status code (e.g. `200`, `404`, `default`) |
+| `description` | string | yes | Response description |
+
+### `document_add_parameter`
+
+Add a parameter to a path item or operation.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path |
+| `method` | string | no | HTTP method (omit to add to path item level) |
+| `name` | string | yes | Parameter name |
+| `location` | string | yes | Parameter location: `query`, `path`, `header`, `cookie` |
+| `description` | string | no | Parameter description |
+| `required` | boolean | no | Whether the parameter is required (auto-set to `true` for path params) |
+| `type` | string | no | Schema type (`string`, `integer`, `number`, `boolean`, `array`). Defaults to `string` |
+
+### `document_add_request_body`
+
+Add an empty request body to an operation (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path |
+| `method` | string | yes | HTTP method (e.g. `post`, `put`, `patch`) |
+
+### `document_add_media_type`
+
+Add a media type to a request body or response (OpenAPI 3.x).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the request body or response (e.g. `/paths[/pets]/post/requestBody`) |
+| `mediaType` | string | yes | Media type string (e.g. `application/json`, `application/xml`) |
+
+### `document_set_media_type_schema`
+
+Set the schema for a media type, either as a `$ref` or inline type.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the media type (e.g. `/paths[/pets]/post/requestBody/content[application/json]`) |
+| `schemaRef` | string | no | Schema `$ref` string (e.g. `#/components/schemas/Pet`) |
+| `schemaType` | string | no | Inline schema type (`string`, `integer`, `object`, `array`, etc.) |
+
+### `document_add_security_scheme`
+
+Add a security scheme definition to the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Security scheme name (e.g. `bearerAuth`, `apiKey`) |
+| `scheme` | string | yes | JSON string with the security scheme definition |
 
 ---
 

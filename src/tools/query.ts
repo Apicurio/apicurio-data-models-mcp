@@ -5,6 +5,7 @@ import { sessionManager } from "../session-manager.js";
 import { errorResult, successResult, withErrorHandling } from "../util/errors.js";
 import { fromLibModelType } from "../util/model-type-map.js";
 import { DocumentInfoVisitor } from "../visitors/DocumentInfoVisitor.js";
+import { OperationCollectorVisitor } from "../visitors/OperationCollectorVisitor.js";
 import { PathCollectorVisitor } from "../visitors/PathCollectorVisitor.js";
 import { SchemaCollectorVisitor } from "../visitors/SchemaCollectorVisitor.js";
 
@@ -76,6 +77,28 @@ export function getDocumentSchemas(sessionName: string): any {
     Library.visitTree(doc, visitor, TraverserDirection.down);
 
     return { session: sessionName, schemas: visitor.schemas };
+}
+
+/**
+ * Get list of all operations across the document (shared helper).
+ *
+ * @param sessionName the session to query
+ * @returns operations (OpenAPI) or asyncOperations (AsyncAPI)
+ */
+export function getDocumentOperations(sessionName: string): any {
+    const entry = sessionManager.getSession(sessionName);
+    const doc = entry.document;
+
+    const visitor = new OperationCollectorVisitor();
+    Library.visitTree(doc, visitor, TraverserDirection.down);
+
+    if (ModelTypeUtil.isOpenApiModel(doc)) {
+        return { session: sessionName, operations: visitor.operations };
+    } else if (ModelTypeUtil.isAsyncApiModel(doc)) {
+        return { session: sessionName, operations: visitor.asyncOperations };
+    }
+
+    return { session: sessionName, operations: [] };
 }
 
 /**
@@ -216,6 +239,18 @@ export function registerQueryTools(server: McpServer): void {
                 nodePath: nodePathStr,
                 node: Library.writeNode(node),
             });
+        }),
+    );
+
+    // ── document_list_operations ──────────────────────────────────
+    server.tool(
+        "document_list_operations",
+        "List all operations across the entire document with path, method, operationId, summary, and tags",
+        {
+            session: z.string().describe("Session name"),
+        },
+        withErrorHandling(async (args) => {
+            return successResult(getDocumentOperations(args.session));
         }),
     );
 }

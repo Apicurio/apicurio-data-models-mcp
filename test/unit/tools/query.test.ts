@@ -243,4 +243,60 @@ describe("query tools", () => {
             expect(result.isError).toBe(true);
         });
     });
+
+    // ── document_list_operations ──────────────────────────────────
+
+    describe("document_list_operations", () => {
+        it("lists all operations in an OpenAPI 3.0 document", async () => {
+            const result = await client.callTool({
+                name: "document_list_operations",
+                arguments: { session: "petstore" },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.operations).toHaveLength(3);
+
+            const listPets = data.operations.find((op: any) => op.path === "/pets" && op.method === "GET");
+            expect(listPets).toBeDefined();
+            expect(listPets.operationId).toBe("listPets");
+            expect(listPets.summary).toBe("List all pets");
+            expect(listPets.tags).toContain("pets");
+
+            const createPet = data.operations.find((op: any) => op.path === "/pets" && op.method === "POST");
+            expect(createPet).toBeDefined();
+            expect(createPet.operationId).toBe("createPet");
+
+            const getPet = data.operations.find(
+                (op: any) => op.path === "/pets/{petId}" && op.method === "GET",
+            );
+            expect(getPet).toBeDefined();
+            expect(getPet.operationId).toBe("getPet");
+        });
+
+        it("lists operations for AsyncAPI documents", async () => {
+            const result = await client.callTool({
+                name: "document_list_operations",
+                arguments: { session: "async" },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.operations).toBeDefined();
+            expect(data.operations.length).toBeGreaterThan(0);
+        });
+
+        it("returns empty for a document with no operations", async () => {
+            await client.callTool({
+                name: "document_create",
+                arguments: { session: "empty", modelType: "openapi3" },
+            });
+
+            const result = await client.callTool({
+                name: "document_list_operations",
+                arguments: { session: "empty" },
+            });
+
+            const data = JSON.parse((result.content as any)[0].text);
+            expect(data.operations).toHaveLength(0);
+        });
+    });
 });

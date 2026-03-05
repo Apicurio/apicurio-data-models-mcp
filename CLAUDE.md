@@ -26,6 +26,7 @@ src/
   visitors/
     index.ts            # Barrel export for all visitors
     DocumentInfoVisitor.ts
+    OperationCollectorVisitor.ts
     PathCollectorVisitor.ts
     SchemaCollectorVisitor.ts
     SchemaContainerVisitor.ts
@@ -48,10 +49,13 @@ document to operate on.
 
 - **Session tools** (5): `session_create`, `session_create_new`, `session_list`, `session_get`,
   `session_close`
-- **Query tools** (5): `document_info`, `document_paths`, `document_schemas`,
-  `document_get_node`, `document_get_operation`
-- **Edit tools** (5): `document_set_node`, `document_remove_node`, `document_add_node`,
-  `document_add_schema`, `document_rename_node`
+- **Query tools** (6): `document_info`, `document_paths`, `document_schemas`,
+  `document_get_node`, `document_get_operation`, `document_list_operations`
+- **Edit tools** (13): `document_set_node`, `document_remove_node`, `document_add_node`,
+  `document_add_schema`, `document_rename_node`, `document_add_operation`,
+  `document_remove_operation`, `document_add_response`, `document_add_parameter`,
+  `document_add_request_body`, `document_add_media_type`, `document_set_media_type_schema`,
+  `document_add_security_scheme`
 - **Validation tool** (1): `document_validate`
 - **Transform tools** (2): `document_convert_format`, `document_convert_version`
 
