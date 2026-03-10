@@ -1,9 +1,12 @@
 {
     "name": "@apicurio/data-models-mcp",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "description": "MCP server wrapping @apicurio/data-models for AI-assisted OpenAPI and AsyncAPI editing",
     "type": "module",
     "main": "dist/index.js",
+    "files": [
+        "dist"
+    ],
     "bin": {
         "apicurio-data-models-mcp": "dist/index.js"
     },
