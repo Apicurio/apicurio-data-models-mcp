@@ -5,8 +5,8 @@ current 53 tools, closing remaining gaps for AI-assisted API design and visual e
 
 ## Current State
 
-The server currently has **62 tools** across 5 categories: session management (7), document
-querying (10), document editing (42), validation (1), and transformation (2). These cover
+The server currently has **81 tools** across 5 categories: session management (7), document
+querying (16), document editing (55), validation (1), and transformation (2). These cover
 session lifecycle, document CRUD for paths/operations/responses/parameters/schemas/tags/
 servers/security schemes/extensions/media types/response headers/request bodies/channels,
 plus validation and spec-version transformation.
@@ -283,9 +283,9 @@ Add a reusable parameter definition to components.
 | `name` | `string` | yes | Parameter definition name (e.g. `pageSize`) |
 | `parameter` | `string` | yes | JSON string with the parameter definition |
 
-**Cmd: NEEDS NEW** — Requires `AddParameterDefinitionCommand(name, paramObj)` in
-`@apicurio/data-models`. Should follow the same pattern as
-`AddSchemaDefinitionCommand` and `AddResponseDefinitionCommand`.
+**Cmd: EXISTS** — Uses
+`CommandFactory.createAddParameterDefinitionCommand(name, paramObj)`. Added in
+`@apicurio/data-models` v2.5.1.
 
 ### 6.2 `document_remove_parameter_definition` — MEDIUM
 
@@ -296,7 +296,9 @@ Remove a reusable parameter definition from components.
 | `session` | `string` | yes | Session name |
 | `name` | `string` | yes | Parameter definition name to remove |
 
-**Cmd: NEEDS NEW** — Requires `DeleteParameterDefinitionCommand(name)`.
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteParameterDefinitionCommand(name)`. Added in
+`@apicurio/data-models` v2.5.1.
 
 ### 6.3 `document_add_header_definition` — MEDIUM
 
@@ -308,7 +310,9 @@ Add a reusable header definition to components.
 | `name` | `string` | yes | Header definition name (e.g. `X-Rate-Limit`) |
 | `header` | `string` | yes | JSON string with the header definition |
 
-**Cmd: NEEDS NEW** — Requires `AddHeaderDefinitionCommand(name, headerObj)`.
+**Cmd: EXISTS** — Uses
+`CommandFactory.createAddHeaderDefinitionCommand(name, headerObj)`. Added in
+`@apicurio/data-models` v2.5.1.
 
 ### 6.4 `document_remove_header_definition` — MEDIUM
 
@@ -319,7 +323,9 @@ Remove a reusable header definition from components.
 | `session` | `string` | yes | Session name |
 | `name` | `string` | yes | Header definition name to remove |
 
-**Cmd: NEEDS NEW** — Requires `DeleteHeaderDefinitionCommand(name)`.
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteHeaderDefinitionCommand(name)`. Added in
+`@apicurio/data-models` v2.5.1.
 
 ### 6.5 `document_add_example_definition` — MEDIUM
 
@@ -331,7 +337,9 @@ Add a reusable example to components.
 | `name` | `string` | yes | Example name |
 | `example` | `string` | yes | JSON string with the example definition |
 
-**Cmd: NEEDS NEW** — Requires `AddExampleDefinitionCommand(name, exampleObj)`.
+**Cmd: EXISTS** — Uses
+`CommandFactory.createAddExampleDefinitionCommand(name, exampleObj)`. Added in
+`@apicurio/data-models` v2.5.1.
 
 ### 6.6 `document_remove_example_definition` — MEDIUM
 
@@ -342,7 +350,9 @@ Remove a reusable example from components.
 | `session` | `string` | yes | Session name |
 | `name` | `string` | yes | Example name to remove |
 
-**Cmd: NEEDS NEW** — Requires `DeleteExampleDefinitionCommand(name)`.
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteExampleDefinitionCommand(name)`. Added in
+`@apicurio/data-models` v2.5.1.
 
 ### 6.7 `document_add_request_body_definition` — MEDIUM
 
@@ -354,7 +364,9 @@ Add a reusable request body definition to components.
 | `name` | `string` | yes | Request body definition name |
 | `requestBody` | `string` | yes | JSON string with the request body definition |
 
-**Cmd: NEEDS NEW** — Requires `AddRequestBodyDefinitionCommand(name, reqBodyObj)`.
+**Cmd: EXISTS** — Uses
+`CommandFactory.createAddRequestBodyDefinitionCommand(name, reqBodyObj)`. Added in
+`@apicurio/data-models` v2.5.1.
 
 ### 6.8 `document_remove_request_body_definition` — MEDIUM
 
@@ -365,7 +377,9 @@ Remove a reusable request body definition from components.
 | `session` | `string` | yes | Session name |
 | `name` | `string` | yes | Request body definition name to remove |
 
-**Cmd: NEEDS NEW** — Requires `DeleteRequestBodyDefinitionCommand(name)`.
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteRequestBodyDefinitionCommand(name)`. Added in
+`@apicurio/data-models` v2.5.1.
 
 ---
 
@@ -819,29 +833,29 @@ not exposed via `CommandFactory` but available as a library command class).
 | 8 | `document_set_schema_type` | EXISTS | DONE |
 | 9 | `document_add_schema_enum` | EXISTS | DONE |
 
-### MEDIUM — 19 tools (implement second)
+### MEDIUM — 19 tools (IMPLEMENTED)
 
-| # | Tool | Cmd Status |
-|---|------|------------|
-| 10 | `document_remove_all_security_requirements` | EXISTS |
-| 11 | `document_remove_media_type` | EXISTS |
-| 12 | `document_add_parameter_definition` | NEEDS NEW |
-| 13 | `document_remove_parameter_definition` | NEEDS NEW |
-| 14 | `document_add_header_definition` | NEEDS NEW |
-| 15 | `document_remove_header_definition` | NEEDS NEW |
-| 16 | `document_add_example_definition` | NEEDS NEW |
-| 17 | `document_remove_example_definition` | NEEDS NEW |
-| 18 | `document_add_request_body_definition` | NEEDS NEW |
-| 19 | `document_remove_request_body_definition` | NEEDS NEW |
-| 20 | `document_list_parameters` | N/A |
-| 21 | `document_list_responses` | N/A |
-| 22 | `document_list_media_types` | N/A |
-| 23 | `document_list_extensions` | N/A |
-| 24 | `document_list_examples` | N/A |
-| 25 | `document_find_refs` | N/A |
-| 26 | `document_delete_contact` | EXISTS |
-| 27 | `document_delete_license` | EXISTS |
-| 28 | `document_update_extension` | EXISTS |
+| # | Tool | Cmd Status | Status |
+|---|------|------------|--------|
+| 10 | `document_remove_all_security_requirements` | EXISTS | DONE |
+| 11 | `document_remove_media_type` | EXISTS | DONE |
+| 12 | `document_add_parameter_definition` | EXISTS | DONE |
+| 13 | `document_remove_parameter_definition` | EXISTS | DONE |
+| 14 | `document_add_header_definition` | EXISTS | DONE |
+| 15 | `document_remove_header_definition` | EXISTS | DONE |
+| 16 | `document_add_example_definition` | EXISTS | DONE |
+| 17 | `document_remove_example_definition` | EXISTS | DONE |
+| 18 | `document_add_request_body_definition` | EXISTS | DONE |
+| 19 | `document_remove_request_body_definition` | EXISTS | DONE |
+| 20 | `document_list_parameters` | N/A | DONE |
+| 21 | `document_list_responses` | N/A | DONE |
+| 22 | `document_list_media_types` | N/A | DONE |
+| 23 | `document_list_extensions` | N/A | DONE |
+| 24 | `document_list_examples` | N/A | DONE |
+| 25 | `document_find_refs` | N/A | DONE |
+| 26 | `document_delete_contact` | EXISTS | DONE |
+| 27 | `document_delete_license` | EXISTS | DONE |
+| 28 | `document_update_extension` | EXISTS | DONE |
 
 ### LOW — 21 tools (implement last)
 
@@ -875,14 +889,14 @@ not exposed via `CommandFactory` but available as a library command class).
 
 | Status | Count | Description |
 |--------|-------|-------------|
-| EXISTS | 28 | Command exists in `@apicurio/data-models`; ready to implement |
-| NEEDS NEW | 15 | Requires a new command in `@apicurio/data-models` first |
+| EXISTS | 36 | Command exists in `@apicurio/data-models`; ready to implement |
+| NEEDS NEW | 7 | Requires a new command in `@apicurio/data-models` first |
 | N/A | 6 | Read-only query tool; no command needed |
 | **Total** | **49** | |
 
-Of these 49, 9 HIGH priority tools have been implemented, leaving **40 remaining**. After
-all tools are implemented, the server would have **102 tools** total (62 existing + 40
-remaining).
+Of these 49, 9 HIGH and 19 MEDIUM priority tools have been implemented, leaving **21
+remaining** (all LOW priority). After all tools are implemented, the server would have
+**102 tools** total (81 existing + 21 remaining).
 
 ### New Commands Required in `@apicurio/data-models`
 

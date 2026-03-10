@@ -53,11 +53,13 @@ document to operate on.
 - **Session tools** (7): `document_load`, `document_create`, `document_save`,
   `document_close`, `document_list_sessions`, `document_export`,
   `document_clone_session`
-- **Query tools** (10): `document_get_info`, `document_list_paths`, `document_get_operation`,
+- **Query tools** (16): `document_get_info`, `document_list_paths`, `document_get_operation`,
   `document_list_schemas`, `document_get_node`, `document_list_operations`,
   `document_get_schema`, `document_list_security_schemes`, `document_list_servers`,
-  `document_list_tags`
-- **Edit tools** (42): `document_set_info`, `document_add_path`, `document_add_schema`,
+  `document_list_tags`, `document_list_parameters`, `document_list_responses`,
+  `document_list_media_types`, `document_list_extensions`, `document_list_examples`,
+  `document_find_refs`
+- **Edit tools** (55): `document_set_info`, `document_add_path`, `document_add_schema`,
   `document_set_node`, `document_remove_node`, `document_add_operation`,
   `document_remove_operation`, `document_add_response`, `document_add_parameter`,
   `document_add_request_body`, `document_add_media_type`, `document_set_media_type_schema`,
@@ -73,7 +75,13 @@ document to operate on.
   `document_remove_schema_property`, `document_add_security_requirement`,
   `document_add_example`, `document_set_operation_info`, `document_set_operation_tags`,
   `document_set_schema_required`, `document_set_schema_type`,
-  `document_add_schema_enum`
+  `document_add_schema_enum`, `document_remove_all_security_requirements`,
+  `document_remove_media_type`, `document_add_parameter_definition`,
+  `document_remove_parameter_definition`, `document_add_header_definition`,
+  `document_remove_header_definition`, `document_add_example_definition`,
+  `document_remove_example_definition`, `document_add_request_body_definition`,
+  `document_remove_request_body_definition`, `document_delete_contact`,
+  `document_delete_license`, `document_update_extension`
 - **Validation tool** (1): `document_validate`
 - **Transform tools** (2): `document_transform`, `document_dereference`
 

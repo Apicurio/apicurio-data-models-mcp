@@ -370,4 +370,245 @@ export function registerQueryTools(server: McpServer): void {
             return successResult(getDocumentTags(args.session));
         }),
     );
+
+    // ── document_list_parameters ─────────────────────────────────
+    server.tool(
+        "document_list_parameters",
+        "List parameters on a specific path item or operation",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path (e.g. /pets)"),
+            method: z.string().optional().describe("HTTP method (omit for path-item-level parameters)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            let nodePathStr: string;
+            if (method) {
+                nodePathStr = `/paths[${apiPath}]/${method.toLowerCase()}`;
+            } else {
+                nodePathStr = `/paths[${apiPath}]`;
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const node = Library.resolveNodePath(np, doc);
+            if (node == null) {
+                return errorResult(
+                    method
+                        ? `No ${method.toUpperCase()} operation on path ${apiPath}`
+                        : `Path not found: ${apiPath}`,
+                );
+            }
+
+            const nodeJson = Library.writeNode(node);
+            const parameters = (nodeJson as any).parameters ?? [];
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method?.toUpperCase(),
+                parameters,
+            });
+        }),
+    );
+
+    // ── document_list_responses ──────────────────────────────────
+    server.tool(
+        "document_list_responses",
+        "List responses on a specific operation with status codes and descriptions",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path (e.g. /pets)"),
+            method: z.string().describe("HTTP method (get, post, put, delete, etc.)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const opPathStr = `/paths[${apiPath}]/${method.toLowerCase()}`;
+            const np = NodePath.parse(opPathStr);
+            const operation = Library.resolveNodePath(np, doc);
+            if (operation == null) {
+                return errorResult(`No ${method.toUpperCase()} operation on path ${apiPath}`);
+            }
+
+            const opJson = Library.writeNode(operation);
+            const responsesObj = (opJson as any).responses ?? {};
+
+            const responses = Object.entries(responsesObj).map(([statusCode, resp]: [string, any]) => ({
+                statusCode,
+                description: resp.description ?? "",
+            }));
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method.toUpperCase(),
+                responses,
+            });
+        }),
+    );
+
+    // ── document_list_media_types ────────────────────────────────
+    server.tool(
+        "document_list_media_types",
+        "List media types on a request body or response",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the request body or response"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const node = Library.resolveNodePath(np, doc);
+            if (node == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const nodeJson = Library.writeNode(node);
+            const content = (nodeJson as any).content ?? {};
+            const mediaTypes = Object.keys(content);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                mediaTypes,
+            });
+        }),
+    );
+
+    // ── document_list_extensions ─────────────────────────────────
+    server.tool(
+        "document_list_extensions",
+        "List all vendor extensions (x-* properties) on a specific node",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the node"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            const np = NodePath.parse(nodePathStr);
+            const node = Library.resolveNodePath(np, doc);
+            if (node == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const nodeJson = Library.writeNode(node);
+            const extensions: Record<string, any> = {};
+            for (const key of Object.keys(nodeJson as any)) {
+                if (key.startsWith("x-")) {
+                    extensions[key] = (nodeJson as any)[key];
+                }
+            }
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                extensions,
+            });
+        }),
+    );
+
+    // ── document_list_examples ───────────────────────────────────
+    server.tool(
+        "document_list_examples",
+        "List examples on a media type, parameter, or header",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the media type, parameter, or header"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const node = Library.resolveNodePath(np, doc);
+            if (node == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const nodeJson = Library.writeNode(node);
+            const examples = (nodeJson as any).examples ?? {};
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                examples,
+            });
+        }),
+    );
+
+    // ── document_find_refs ───────────────────────────────────────
+    server.tool(
+        "document_find_refs",
+        "Find all $ref references to a given definition throughout the document",
+        {
+            session: z.string().describe("Session name"),
+            ref: z.string().describe("The $ref string to search for (e.g. #/components/schemas/Pet)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, ref: targetRef } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            // Serialize the document and recursively find all $ref matches
+            const docJson = Library.writeNode(doc);
+            const refs: Array<{ path: string; ref: string }> = [];
+
+            function findRefs(obj: any, currentPath: string): void {
+                if (typeof obj !== "object" || obj == null) return;
+                if (obj.$ref === targetRef) {
+                    refs.push({ path: currentPath, ref: obj.$ref });
+                }
+                for (const key of Object.keys(obj)) {
+                    if (key === "$ref") continue;
+                    const child = obj[key];
+                    if (typeof child === "object" && child != null) {
+                        if (Array.isArray(child)) {
+                            for (let i = 0; i < child.length; i++) {
+                                findRefs(child[i], `${currentPath}/${key}[${i}]`);
+                            }
+                        } else {
+                            findRefs(child, `${currentPath}/${key}`);
+                        }
+                    }
+                }
+            }
+
+            findRefs(docJson, "");
+
+            return successResult({
+                session,
+                ref: targetRef,
+                count: refs.length,
+                references: refs,
+            });
+        }),
+    );
 }

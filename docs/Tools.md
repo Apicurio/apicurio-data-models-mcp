@@ -164,6 +164,62 @@ List all tag definitions in the document.
 |----------|------|----------|-------------|
 | `session` | string | yes | Session name |
 
+### `document_list_parameters`
+
+List parameters on a specific path item or operation.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path (e.g. `/pets`) |
+| `method` | string | no | HTTP method (omit for path-item-level parameters) |
+
+### `document_list_responses`
+
+List responses on a specific operation with status codes and descriptions.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path (e.g. `/pets`) |
+| `method` | string | yes | HTTP method |
+
+### `document_list_media_types`
+
+List media types on a request body or response.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the request body or response |
+
+### `document_list_extensions`
+
+List all vendor extensions (`x-*` properties) on a specific node.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the node |
+
+### `document_list_examples`
+
+List examples on a media type, parameter, or header.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the media type, parameter, or header |
+
+### `document_find_refs`
+
+Find all `$ref` references to a given definition throughout the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `ref` | string | yes | The `$ref` string to search for (e.g. `#/components/schemas/Pet`) |
+
 ---
 
 ## Edit
@@ -613,6 +669,128 @@ Set enum values on a schema.
 | `session` | string | yes | Session name |
 | `nodePath` | string | yes | Node path to the schema |
 | `values` | string | yes | JSON array of enum values (e.g. `["active","inactive"]`) |
+
+### `document_remove_all_security_requirements`
+
+Remove all security requirements from the document or from a specific operation.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | no | API path (if targeting an operation) |
+| `method` | string | no | HTTP method (if targeting an operation) |
+
+### `document_remove_media_type`
+
+Remove a specific media type from a request body or response.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the media type |
+
+### `document_add_parameter_definition`
+
+Add a reusable parameter definition to the document components.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Parameter definition name (e.g. `pageSize`) |
+| `parameter` | string | yes | JSON string with the parameter definition |
+
+### `document_remove_parameter_definition`
+
+Remove a reusable parameter definition from the document components.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Parameter definition name to remove |
+
+### `document_add_header_definition`
+
+Add a reusable header definition to the document components (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Header definition name (e.g. `X-Rate-Limit`) |
+| `header` | string | yes | JSON string with the header definition |
+
+### `document_remove_header_definition`
+
+Remove a reusable header definition from the document components (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Header definition name to remove |
+
+### `document_add_example_definition`
+
+Add a reusable example definition to the document components (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Example definition name |
+| `example` | string | yes | JSON string with the example definition |
+
+### `document_remove_example_definition`
+
+Remove a reusable example definition from the document components (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Example definition name to remove |
+
+### `document_add_request_body_definition`
+
+Add a reusable request body definition to the document components (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Request body definition name |
+| `requestBody` | string | yes | JSON string with the request body definition |
+
+### `document_remove_request_body_definition`
+
+Remove a reusable request body definition from the document components (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `name` | string | yes | Request body definition name to remove |
+
+### `document_delete_contact`
+
+Remove the contact object from the document info.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+
+### `document_delete_license`
+
+Remove the license object from the document info.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+
+### `document_update_extension`
+
+Update the value of an existing vendor extension.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the parent node |
+| `name` | string | yes | Extension name (must start with `x-`) |
+| `value` | string | yes | JSON string with the new extension value |
 
 ---
 

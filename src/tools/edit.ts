@@ -1797,4 +1797,490 @@ export function registerEditTools(server: McpServer): void {
             });
         }),
     );
+
+    // ── document_remove_all_security_requirements ────────────────
+    server.tool(
+        "document_remove_all_security_requirements",
+        "Remove all security requirements from the document or from a specific operation",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().optional().describe("API path (if targeting an operation)"),
+            method: z.string().optional().describe("HTTP method (if targeting an operation)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            let command: ICommand;
+            if (apiPath && method) {
+                const operation = resolveOperation(doc, apiPath, method);
+                if (isErrorResult(operation)) return operation;
+                command = CommandFactory.createDeleteAllOperationSecurityRequirementsCommand(
+                    operation as any,
+                );
+            } else {
+                command = CommandFactory.createDeleteAllDocumentSecurityRequirementsCommand(doc as any);
+            }
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                scope: apiPath && method ? `${method.toUpperCase()} ${apiPath}` : "document",
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_media_type ───────────────────────────────
+    server.tool(
+        "document_remove_media_type",
+        "Remove a specific media type from a request body or response",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z
+                .string()
+                .describe(
+                    "Node path to the media type (e.g. /paths[/pets]/post/requestBody/content[application/json])",
+                ),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const mediaType = Library.resolveNodePath(np, doc);
+            if (mediaType == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const command = CommandFactory.createDeleteMediaTypeCommand(mediaType as any);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_parameter_definition ────────────────────────
+    server.tool(
+        "document_add_parameter_definition",
+        "Add a reusable parameter definition to the document components",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Parameter definition name (e.g. pageSize, Authorization)"),
+            parameter: z.string().describe("JSON string with the parameter definition"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name, parameter: paramJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            // Ensure parameters container is initialized
+            const pComp = (doc as any).getComponents?.();
+            if (pComp && typeof pComp.getParameters === "function" && pComp.getParameters() == null) {
+                const ph = pComp.createParameter();
+                pComp.addParameter("__placeholder__", ph);
+                pComp.removeParameter("__placeholder__");
+            }
+
+            const paramObj = JSON.parse(paramJson);
+            const command = CommandFactory.createAddParameterDefinitionCommand(name, paramObj);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_remove_parameter_definition ─────────────────────
+    server.tool(
+        "document_remove_parameter_definition",
+        "Remove a reusable parameter definition from the document components",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Parameter definition name to remove"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const command = CommandFactory.createDeleteParameterDefinitionCommand(name);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_header_definition ───────────────────────────
+    server.tool(
+        "document_add_header_definition",
+        "Add a reusable header definition to the document components (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Header definition name (e.g. X-Rate-Limit)"),
+            header: z.string().describe("JSON string with the header definition"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name, header: headerJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Header definitions are only supported in OpenAPI 3.x documents");
+            }
+
+            // Ensure headers container is initialized
+            const hComp = (doc as any).getComponents?.();
+            if (hComp && typeof hComp.getHeaders === "function" && hComp.getHeaders() == null) {
+                const ph = hComp.createHeader();
+                hComp.addHeader("__placeholder__", ph);
+                hComp.removeHeader("__placeholder__");
+            }
+
+            const headerObj = JSON.parse(headerJson);
+            const command = CommandFactory.createAddHeaderDefinitionCommand(name, headerObj);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_remove_header_definition ────────────────────────
+    server.tool(
+        "document_remove_header_definition",
+        "Remove a reusable header definition from the document components (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Header definition name to remove"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Header definitions are only supported in OpenAPI 3.x documents");
+            }
+
+            const command = CommandFactory.createDeleteHeaderDefinitionCommand(name);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_example_definition ──────────────────────────
+    server.tool(
+        "document_add_example_definition",
+        "Add a reusable example definition to the document components (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Example definition name"),
+            example: z.string().describe("JSON string with the example definition"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name, example: exampleJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Example definitions are only supported in OpenAPI 3.x documents");
+            }
+
+            // Ensure examples container is initialized
+            const eComp = (doc as any).getComponents?.();
+            if (eComp && typeof eComp.getExamples === "function" && eComp.getExamples() == null) {
+                const ph = eComp.createExample();
+                eComp.addExample("__placeholder__", ph);
+                eComp.removeExample("__placeholder__");
+            }
+
+            const exampleObj = JSON.parse(exampleJson);
+            const command = CommandFactory.createAddExampleDefinitionCommand(name, exampleObj);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_remove_example_definition ───────────────────────
+    server.tool(
+        "document_remove_example_definition",
+        "Remove a reusable example definition from the document components (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Example definition name to remove"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Example definitions are only supported in OpenAPI 3.x documents");
+            }
+
+            const command = CommandFactory.createDeleteExampleDefinitionCommand(name);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_request_body_definition ─────────────────────
+    server.tool(
+        "document_add_request_body_definition",
+        "Add a reusable request body definition to the document components (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Request body definition name"),
+            requestBody: z.string().describe("JSON string with the request body definition"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name, requestBody: reqBodyJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Request body definitions are only supported in OpenAPI 3.x documents");
+            }
+
+            // Ensure request bodies container is initialized
+            const rbComp = (doc as any).getComponents?.();
+            if (
+                rbComp &&
+                typeof rbComp.getRequestBodies === "function" &&
+                rbComp.getRequestBodies() == null
+            ) {
+                const ph = rbComp.createRequestBody();
+                rbComp.addRequestBody("__placeholder__", ph);
+                rbComp.removeRequestBody("__placeholder__");
+            }
+
+            const reqBodyObj = JSON.parse(reqBodyJson);
+            const command = CommandFactory.createAddRequestBodyDefinitionCommand(name, reqBodyObj);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_remove_request_body_definition ──────────────────
+    server.tool(
+        "document_remove_request_body_definition",
+        "Remove a reusable request body definition from the document components (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            name: z.string().describe("Request body definition name to remove"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Request body definitions are only supported in OpenAPI 3.x documents");
+            }
+
+            const command = CommandFactory.createDeleteRequestBodyDefinitionCommand(name);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                name,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_delete_contact ──────────────────────────────────
+    server.tool(
+        "document_delete_contact",
+        "Remove the contact object from the document info",
+        {
+            session: z.string().describe("Session name"),
+        },
+        withErrorHandling(async (args) => {
+            const { session } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            const info = Library.resolveNodePath(NodePath.parse("/info"), doc);
+            if (info == null) {
+                return errorResult("No info node found in the document");
+            }
+
+            const command = CommandFactory.createDeleteContactCommand(info as any);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                contactRemoved: true,
+            });
+        }),
+    );
+
+    // ── document_delete_license ──────────────────────────────────
+    server.tool(
+        "document_delete_license",
+        "Remove the license object from the document info",
+        {
+            session: z.string().describe("Session name"),
+        },
+        withErrorHandling(async (args) => {
+            const { session } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            const info = Library.resolveNodePath(NodePath.parse("/info"), doc);
+            if (info == null) {
+                return errorResult("No info node found in the document");
+            }
+
+            const command = CommandFactory.createDeleteLicenseCommand(info as any);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                licenseRemoved: true,
+            });
+        }),
+    );
+
+    // ── document_update_extension ────────────────────────────────
+    server.tool(
+        "document_update_extension",
+        "Update the value of an existing vendor extension",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the parent node"),
+            name: z.string().describe("Extension name (must start with x-)"),
+            value: z.string().describe("JSON string with the new extension value"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, name, value: valueJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!name.startsWith("x-")) {
+                return errorResult("Extension name must start with 'x-'");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const parent = Library.resolveNodePath(np, doc);
+            if (parent == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const newValue = JSON.parse(valueJson);
+            const command = CommandFactory.createChangeExtensionCommand(parent as any, name, newValue);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                name,
+                updated: true,
+            });
+        }),
+    );
 }
