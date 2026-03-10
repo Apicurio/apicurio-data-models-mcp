@@ -1,5 +1,7 @@
 import type { Document, ICommand, Node } from "@apicurio/data-models";
 import {
+    AddExampleCommand,
+    AddSecurityRequirementCommand,
     AggregateCommand,
     CommandFactory,
     Library,
@@ -1403,6 +1405,395 @@ export function registerEditTools(server: McpServer): void {
                 nodePath: nodePathStr,
                 header: name,
                 removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_schema_property ──────────────────────────────
+    server.tool(
+        "document_add_schema_property",
+        "Add a named property to an object schema definition",
+        {
+            session: z.string().describe("Session name"),
+            schemaName: z.string().describe("Name of the schema definition (e.g. Pet)"),
+            propertyName: z.string().describe("Property name to add (e.g. status)"),
+            schema: z.string().describe('JSON string with the property schema (e.g. {"type":"string"})'),
+        },
+        withErrorHandling(async (args) => {
+            const { session, schemaName, propertyName, schema: schemaJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const propertySchema = JSON.parse(schemaJson);
+            const command = CommandFactory.createAddSchemaPropertyCommand(
+                schemaName,
+                propertyName,
+                propertySchema,
+            );
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                schemaName,
+                propertyName,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_remove_schema_property ───────────────────────────
+    server.tool(
+        "document_remove_schema_property",
+        "Remove a named property from an object schema definition",
+        {
+            session: z.string().describe("Session name"),
+            schemaName: z.string().describe("Name of the schema definition (e.g. Pet)"),
+            propertyName: z.string().describe("Property name to remove"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, schemaName, propertyName } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const command = CommandFactory.createDeleteSchemaPropertyCommand(schemaName, propertyName);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                schemaName,
+                propertyName,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_security_requirement ─────────────────────────
+    server.tool(
+        "document_add_security_requirement",
+        "Add a security requirement to the document or to a specific operation",
+        {
+            session: z.string().describe("Session name"),
+            requirement: z
+                .string()
+                .describe('JSON object mapping scheme names to scopes (e.g. {"bearerAuth":[]})'),
+            path: z.string().optional().describe("API path (required if applying to an operation)"),
+            method: z.string().optional().describe("HTTP method (required if applying to an operation)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, requirement: reqJson, path: apiPath, method } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const requirementObj = JSON.parse(reqJson);
+
+            let command: ICommand;
+            if (apiPath && method) {
+                const operation = resolveOperation(doc, apiPath, method);
+                if (isErrorResult(operation)) return operation;
+                const parent = operation as any;
+                const secReq = parent.createSecurityRequirement();
+                Library.readNode(requirementObj, secReq);
+                command = new AddSecurityRequirementCommand(parent, secReq);
+            } else {
+                const secReq = (doc as any).createSecurityRequirement();
+                Library.readNode(requirementObj, secReq);
+                command = new AddSecurityRequirementCommand(doc, secReq);
+            }
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                scope: apiPath && method ? `${method.toUpperCase()} ${apiPath}` : "document",
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_add_example ──────────────────────────────────────
+    server.tool(
+        "document_add_example",
+        "Add a named example to a media type, parameter, or header (OpenAPI 3.x)",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the media type, parameter, or header"),
+            name: z.string().describe("Example name"),
+            value: z.string().describe("JSON string with the example value"),
+            summary: z.string().optional().describe("Example summary"),
+            description: z.string().optional().describe("Example description"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, name, value: valueJson, summary, description } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Named examples are only supported in OpenAPI 3.x documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const parentNode = Library.resolveNodePath(np, doc);
+            if (parentNode == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const exampleValue = JSON.parse(valueJson);
+            const command = new AddExampleCommand(
+                parentNode,
+                exampleValue,
+                name,
+                summary ?? null,
+                description ?? null,
+            );
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                name,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_set_operation_info ───────────────────────────────
+    server.tool(
+        "document_set_operation_info",
+        "Set metadata properties on an operation (operationId, summary, description, deprecated)",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path (e.g. /pets)"),
+            method: z.string().describe("HTTP method (get, post, put, delete, etc.)"),
+            operationId: z.string().optional().describe("Operation ID"),
+            summary: z.string().optional().describe("Operation summary"),
+            description: z.string().optional().describe("Operation description"),
+            deprecated: z.boolean().optional().describe("Whether the operation is deprecated"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method, operationId, summary, description, deprecated } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const operation = resolveOperation(doc, apiPath, method);
+            if (isErrorResult(operation)) return operation;
+
+            const commands: ICommand[] = [];
+            if (operationId !== undefined) {
+                commands.push(
+                    CommandFactory.createChangePropertyCommand(operation as Node, "operationId", operationId),
+                );
+            }
+            if (summary !== undefined) {
+                commands.push(
+                    CommandFactory.createChangePropertyCommand(operation as Node, "summary", summary),
+                );
+            }
+            if (description !== undefined) {
+                commands.push(
+                    CommandFactory.createChangePropertyCommand(operation as Node, "description", description),
+                );
+            }
+            if (deprecated !== undefined) {
+                commands.push(
+                    CommandFactory.createChangePropertyCommand(operation as Node, "deprecated", deprecated),
+                );
+            }
+
+            if (commands.length > 0) {
+                new AggregateCommand("set_operation_info", {}, commands).execute(doc);
+                sessionManager.touchSession(session);
+            }
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method.toLowerCase(),
+                updated: {
+                    ...(operationId !== undefined && { operationId }),
+                    ...(summary !== undefined && { summary }),
+                    ...(description !== undefined && { description }),
+                    ...(deprecated !== undefined && { deprecated }),
+                },
+            });
+        }),
+    );
+
+    // ── document_set_operation_tags ───────────────────────────────
+    server.tool(
+        "document_set_operation_tags",
+        "Set the tags array on an operation",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path (e.g. /pets)"),
+            method: z.string().describe("HTTP method (get, post, put, delete, etc.)"),
+            tags: z.string().describe('JSON array of tag names (e.g. ["pets","admin"])'),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method, tags: tagsJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const operation = resolveOperation(doc, apiPath, method);
+            if (isErrorResult(operation)) return operation;
+
+            const tagsArray = JSON.parse(tagsJson);
+            const command = CommandFactory.createChangePropertyCommand(operation as Node, "tags", tagsArray);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method.toLowerCase(),
+                tags: tagsArray,
+            });
+        }),
+    );
+
+    // ── document_set_schema_required ──────────────────────────────
+    server.tool(
+        "document_set_schema_required",
+        "Set the required array on a schema, controlling which properties are mandatory",
+        {
+            session: z.string().describe("Session name"),
+            schemaName: z.string().describe("Name of the schema definition (e.g. Pet)"),
+            required: z.string().describe('JSON array of required property names (e.g. ["id","name"])'),
+        },
+        withErrorHandling(async (args) => {
+            const { session, schemaName, required: requiredJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            // Resolve schema definition by name — try OAS 3.x path, then OAS 2.0 path
+            const schemaPath = ModelTypeUtil.isOpenApi2Model(doc)
+                ? `/definitions[${schemaName}]`
+                : `/components/schemas[${schemaName}]`;
+            const schema = Library.resolveNodePath(NodePath.parse(schemaPath), doc);
+            if (schema == null) {
+                return errorResult(`Schema definition not found: ${schemaName}`);
+            }
+
+            const requiredArray = JSON.parse(requiredJson);
+            const command = CommandFactory.createChangePropertyCommand(schema, "required", requiredArray);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                schemaName,
+                required: requiredArray,
+            });
+        }),
+    );
+
+    // ── document_set_schema_type ──────────────────────────────────
+    server.tool(
+        "document_set_schema_type",
+        "Set the type field on a schema (string, object, array, integer, number, boolean)",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the schema"),
+            type: z.string().describe("Schema type value (string, object, array, integer, number, boolean)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, type: schemaType } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const schema = Library.resolveNodePath(np, doc);
+            if (schema == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const command = CommandFactory.createChangePropertyCommand(schema, "type", schemaType);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                type: schemaType,
+            });
+        }),
+    );
+
+    // ── document_add_schema_enum ──────────────────────────────────
+    server.tool(
+        "document_add_schema_enum",
+        "Set enum values on a schema",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the schema"),
+            values: z.string().describe('JSON array of enum values (e.g. ["active","inactive"])'),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, values: valuesJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const schema = Library.resolveNodePath(np, doc);
+            if (schema == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const enumValues = JSON.parse(valuesJson);
+            const command = CommandFactory.createChangePropertyCommand(schema, "enum", enumValues);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                enum: enumValues,
             });
         }),
     );

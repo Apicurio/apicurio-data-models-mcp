@@ -57,7 +57,7 @@ document to operate on.
   `document_list_schemas`, `document_get_node`, `document_list_operations`,
   `document_get_schema`, `document_list_security_schemes`, `document_list_servers`,
   `document_list_tags`
-- **Edit tools** (33): `document_set_info`, `document_add_path`, `document_add_schema`,
+- **Edit tools** (42): `document_set_info`, `document_add_path`, `document_add_schema`,
   `document_set_node`, `document_remove_node`, `document_add_operation`,
   `document_remove_operation`, `document_add_response`, `document_add_parameter`,
   `document_add_request_body`, `document_add_media_type`, `document_set_media_type_schema`,
@@ -69,7 +69,11 @@ document to operate on.
   `document_remove_request_body`, `document_update_security_scheme`,
   `document_remove_tag`, `document_rename_tag`, `document_remove_server`,
   `document_add_extension`, `document_remove_extension`,
-  `document_remove_response_header`
+  `document_remove_response_header`, `document_add_schema_property`,
+  `document_remove_schema_property`, `document_add_security_requirement`,
+  `document_add_example`, `document_set_operation_info`, `document_set_operation_tags`,
+  `document_set_schema_required`, `document_set_schema_type`,
+  `document_add_schema_enum`
 - **Validation tool** (1): `document_validate`
 - **Transform tools** (2): `document_transform`, `document_dereference`
 

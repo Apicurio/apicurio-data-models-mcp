@@ -1,183 +1,396 @@
 # Proposed New MCP Tools
 
-This document proposes 33 new tools to extend the apicurio-data-models MCP server beyond
-its current 18 tools, providing comprehensive coverage for AI-assisted API design and editing.
+This document proposes new tools to extend the apicurio-data-models MCP server beyond its
+current 53 tools, closing remaining gaps for AI-assisted API design and visual editing.
 
 ## Current State
 
-The server currently has **18 tools** across 5 categories: session management (5), document
-querying (5), document editing (5), validation (1), and transformation (2). The generic tools
-`document_set_node`, `document_get_node`, and `document_remove_node` provide a fallback for
-any operation, but they require the AI agent to understand internal node path syntax and
-construct raw JSON payloads without validation. The proposed tools below provide semantic,
-validated operations at the conceptual level an AI agent thinks at when designing APIs.
+The server currently has **62 tools** across 5 categories: session management (7), document
+querying (10), document editing (42), validation (1), and transformation (2). These cover
+session lifecycle, document CRUD for paths/operations/responses/parameters/schemas/tags/
+servers/security schemes/extensions/media types/response headers/request bodies/channels,
+plus validation and spec-version transformation.
+
+The generic tools `document_set_node`, `document_get_node`, and `document_remove_node`
+provide a fallback for any operation, but they require the AI agent to understand internal
+node path syntax and construct raw JSON payloads without validation. The proposed tools
+below address remaining semantic gaps — operations that are either common enough to deserve
+first-class support or complex enough that the generic tools are error-prone.
+
+## Command-Backed Implementation Directive
+
+> **Every edit tool in this MCP server MUST be backed by a Command implementation (or an
+> aggregation of Command implementations) from the `@apicurio/data-models` library.**
+> Direct model manipulation in edit tool handlers should be used only in rare, exceptional
+> cases.
+>
+> If a required Command does not already exist in `@apicurio/data-models`, it **must be
+> implemented in that library first** before the corresponding MCP tool can be added here.
+> This ensures consistency with the library's undo/redo infrastructure, proper
+> serialization support, and alignment with the visual editor's command history.
+
+Throughout this document, each tool's command status is tracked:
+
+- **Cmd: EXISTS** — The required `CommandFactory` method(s) already exist in the library.
+  The tool can be implemented immediately.
+- **Cmd: NEEDS NEW** — No suitable command exists. A new command must be created in
+  `@apicurio/data-models` before this tool can be implemented. The required command name
+  is listed.
+- **Cmd: N/A** — The tool is read-only (query) or session-management; no command is
+  needed.
+
+## Methodology
+
+Gaps were identified by cross-referencing three data sources:
+
+1. The 53 tools currently implemented
+2. The ~60 `CommandFactory` methods in `@apicurio/data-models` (many not yet exposed)
+3. The complete OpenAPI 3.x node model (28+ node types, 68 visitor methods)
 
 ### Priority Levels
 
-- **HIGH** — Core API design actions; implement first
-- **MEDIUM** — Complete CRUD lifecycles and add useful queries; implement second
-- **LOW** — Less common operations with reasonable generic-tool fallbacks; implement last
+- **HIGH** — Covers the most common gaps; implement first
+- **MEDIUM** — Completes CRUD lifecycles and adds useful queries; implement second
+- **LOW** — Advanced features, refactoring operations, and bulk utilities; implement last
 
 ---
 
-## Category 1: Operation Management
+## Category 1: Schema Property Management — HIGH
 
-Operations (GET, POST, PUT, DELETE, etc.) are the core building blocks of an API. Currently,
-an agent must use `document_add_path` with a fully-formed JSON body to create operations, or
-use `document_set_node` to modify them. There are no dedicated tools for adding, removing, or
-modifying individual operations on an existing path.
+Individual schema properties (fields within an `object` schema) are the most frequently
+edited elements in API design. "Add a `status` field of type string with enum values
+`active`, `inactive` to the `User` schema" is one of the most common things an AI agent
+needs to do. Today it requires exporting the full schema, modifying JSON, and using
+`document_set_node`.
 
-### 1.1 `document_add_operation` — HIGH
+### 1.1 `document_add_schema_property` — HIGH
 
-Add a new HTTP operation to an existing path item. Creates an empty operation skeleton that
-can be further configured with parameters, request body, and responses.
+Add a named property to an object schema.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
-| `path` | `string` | yes | The API path (e.g., `/pets`) |
-| `method` | `string` | yes | HTTP method (`get`, `post`, `put`, `delete`, `patch`, `options`, `head`) |
+| `schemaName` | `string` | yes | Name of the schema definition (e.g. `Pet`) |
+| `propertyName` | `string` | yes | Property name to add (e.g. `status`) |
+| `schema` | `string` | yes | JSON string with the property schema (e.g. `{"type":"string"}`) |
 
-**Library command:** `CommandFactory.createCreateOperationCommand(pathItem, method)`
+**Cmd: EXISTS** — Uses `CommandFactory.createAddSchemaPropertyCommand(schemaName,
+propertyName, schemaObj)`. Added in `@apicurio/data-models` v2.5.1.
 
-**Rationale:** This is the most common incremental edit when building an API. Currently
-requires `document_set_node` with a full operation JSON, or using `document_add_path` with
-the entire path item pre-built. The command creates the operation and wires it to the path
-item properly.
+### 1.2 `document_remove_schema_property` — HIGH
 
-### 1.2 `document_remove_operation` — HIGH
-
-Remove a specific HTTP operation from a path item.
+Remove a named property from an object schema.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
-| `path` | `string` | yes | The API path (e.g., `/pets`) |
-| `method` | `string` | yes | HTTP method to remove |
+| `schemaName` | `string` | yes | Name of the schema definition |
+| `propertyName` | `string` | yes | Property name to remove |
 
-**Library command:** `CommandFactory.createDeleteOperationCommand(pathItem, method)`
+**Cmd: EXISTS** — Uses `CommandFactory.createDeleteSchemaPropertyCommand(schemaName,
+propertyName)`. Added in `@apicurio/data-models` v2.5.1.
 
-**Rationale:** Deleting an operation is a common editing action. Using `document_remove_node`
-requires the agent to know the exact node path syntax (`/paths[/pets]/get`). This tool
-provides a cleaner semantic interface.
+### 1.3 `document_set_schema_required` — MEDIUM
+
+Set the `required` array on a schema, controlling which properties are mandatory.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `schemaName` | `string` | yes | Name of the schema definition |
+| `required` | `string` | yes | JSON array of required property names |
+
+**Cmd: EXISTS** — Uses `CommandFactory.createChangePropertyCommand(schema, "required",
+value)`.
+
+### 1.4 `document_set_schema_type` — MEDIUM
+
+Set the `type` field on a schema (string, object, array, integer, number, boolean).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the schema |
+| `type` | `string` | yes | Schema type value |
+
+**Cmd: EXISTS** — Uses `CommandFactory.createChangePropertyCommand(schema, "type", value)`.
+
+### 1.5 `document_add_schema_enum` — MEDIUM
+
+Set enum values on a schema property.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the schema |
+| `values` | `string` | yes | JSON array of enum values |
+
+**Cmd: EXISTS** — Uses `CommandFactory.createChangePropertyCommand(schema, "enum",
+values)`.
 
 ---
 
-## Category 2: Response Management
+## Category 2: Security Requirements — HIGH
 
-Responses are essential to every operation. An agent helping design an API will almost always
-need to add/remove responses (200, 201, 400, 404, 500, etc.).
+Security *schemes* define authentication mechanisms; security *requirements* assign them to
+the document or individual operations. We have full scheme CRUD but no requirement tools.
+Defining a security scheme is useless without assigning it as a requirement.
 
-### 2.1 `document_add_response` — HIGH
+### 2.1 `document_add_security_requirement` — HIGH
 
-Add a response to an operation by status code and description.
+Add a security requirement to the document or to a specific operation.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `requirement` | `string` | yes | JSON object mapping scheme names to scopes (e.g. `{"bearerAuth":[]}`) |
+| `path` | `string` | no | API path (required if applying to an operation) |
+| `method` | `string` | no | HTTP method (required if applying to an operation) |
+
+**Cmd: EXISTS** — Uses
+`CommandFactory.createAddDocumentSecurityRequirementCommand(document, requirement)` when
+path/method are omitted, or
+`CommandFactory.createAddOperationSecurityRequirementCommand(operation, requirement)` when
+path/method are provided.
+
+### 2.2 `document_remove_all_security_requirements` — MEDIUM
+
+Remove all security requirements from the document or from a specific operation.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `path` | `string` | no | API path (if targeting an operation) |
+| `method` | `string` | no | HTTP method (if targeting an operation) |
+
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteAllDocumentSecurityRequirementsCommand(document)` or
+`CommandFactory.createDeleteAllOperationSecurityRequirementsCommand(operation)`.
+
+---
+
+## Category 3: Example Management — HIGH
+
+Examples are critical for AI agents generating API documentation and for visual editors
+showing sample request/response bodies. No tools exist for managing examples on media
+types, parameters, or headers.
+
+### 3.1 `document_add_example` — HIGH
+
+Add a named example to a media type, parameter, or header.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the media type, parameter, or header |
+| `name` | `string` | yes | Example name |
+| `value` | `string` | yes | JSON string with the example value |
+| `summary` | `string` | no | Example summary |
+| `description` | `string` | no | Example description |
+
+**Cmd: EXISTS** — Uses
+`CommandFactory.createAddMediaTypeExampleCommand(mediaType, example, name, summary, desc)`,
+`CommandFactory.createAddParameterExampleCommand(parameter, ...)`, or
+`CommandFactory.createAddHeaderExampleCommand(header, ...)`. A single tool can dispatch to
+the correct command based on the resolved node type.
+
+### 3.2 `document_remove_all_examples` — LOW
+
+Remove all examples from a media type, parameter, or header.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the parent node |
+
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteAllMediaTypeExamplesCommand(mediaType)`,
+`CommandFactory.createDeleteAllParameterExamplesCommand(parameter)`, or
+`CommandFactory.createDeleteAllHeaderExamplesCommand(header)`.
+
+---
+
+## Category 4: Operation Metadata — HIGH
+
+Setting individual operation properties is extremely common but currently requires
+`document_set_node` with a full operation JSON or `document_get_node` + manual
+modification.
+
+### 4.1 `document_set_operation_info` — HIGH
+
+Set metadata properties on an operation (operationId, summary, description, deprecated).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
 | `path` | `string` | yes | The API path |
 | `method` | `string` | yes | HTTP method |
-| `statusCode` | `string` | yes | HTTP status code (e.g., `200`, `404`, `default`) |
-| `description` | `string` | yes | Response description |
+| `operationId` | `string` | no | Operation ID |
+| `summary` | `string` | no | Operation summary |
+| `description` | `string` | no | Operation description |
+| `deprecated` | `boolean` | no | Whether the operation is deprecated |
 
-**Library command:**
-`CommandFactory.createAddResponseCommand(operation, statusCode, description)`
+**Cmd: EXISTS** — Uses `CommandFactory.createChangePropertyCommand(operation, property,
+value)` for each provided property, wrapped in an `AggregateCommand`.
 
-**Rationale:** Responses are the first thing an agent adds after creating an operation. The
-command properly creates the responses container if it doesn't exist and handles the
-status-code-keyed map structure that varies between OAS 2.0 and 3.x.
+### 4.2 `document_set_operation_tags` — HIGH
 
-### 2.2 `document_remove_response` — MEDIUM
-
-Remove a response from an operation by status code.
+Set the tags array on an operation.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
 | `path` | `string` | yes | The API path |
 | `method` | `string` | yes | HTTP method |
-| `statusCode` | `string` | yes | HTTP status code to remove |
+| `tags` | `string` | yes | JSON array of tag names (e.g. `["pets","admin"]`) |
 
-**Library command:**
-`CommandFactory.createDeleteResponseCommand(operation, statusCode)`
+**Cmd: EXISTS** — Uses `CommandFactory.createChangePropertyCommand(operation, "tags",
+tagArray)`.
 
-**Rationale:** Pairs with `document_add_response` for complete response lifecycle management.
+---
 
-### 2.3 `document_add_response_definition` — MEDIUM
+## Category 5: Media Type Deletion — MEDIUM
 
-Add a reusable response definition to the document's components/definitions section.
+We can add media types but not remove individual ones.
+
+### 5.1 `document_remove_media_type` — MEDIUM
+
+Remove a specific media type from a request body or response.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
-| `name` | `string` | yes | Response definition name |
-| `response` | `string` | yes | JSON string with the response definition content |
+| `nodePath` | `string` | yes | Node path to the media type (e.g. `/paths[/pets]/post/requestBody/content[application/json]`) |
 
-**Library command:**
-`CommandFactory.createAddResponseDefinitionCommand(name, json)`
-
-**Rationale:** Reusable response definitions (e.g., a standard `ErrorResponse`) are a best
-practice that an AI agent should encourage. This mirrors the existing `document_add_schema`
-tool for schemas.
+**Cmd: EXISTS** — Uses `CommandFactory.createDeleteMediaTypeCommand(mediaType)`.
 
 ---
 
-## Category 3: Parameter Management
+## Category 6: Reusable Component Definitions — MEDIUM
 
-Parameters (query, path, header, cookie) are fundamental to operation design and are tedious
-to construct manually via `document_set_node`.
+The `components` object in OAS 3.x has 9 sub-maps. We have tools for schemas and responses
+but not for the other 7. Reusable components are a best practice — an AI agent encouraging
+DRY API design needs to create shared parameters (e.g. `pageSize`, `Authorization`
+header), shared request bodies, shared examples, etc.
 
-### 3.1 `document_add_parameter` — HIGH
+### 6.1 `document_add_parameter_definition` — MEDIUM
 
-Add a parameter to a path item or operation.
+Add a reusable parameter definition to components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `name` | `string` | yes | Parameter definition name (e.g. `pageSize`) |
+| `parameter` | `string` | yes | JSON string with the parameter definition |
+
+**Cmd: NEEDS NEW** — Requires `AddParameterDefinitionCommand(name, paramObj)` in
+`@apicurio/data-models`. Should follow the same pattern as
+`AddSchemaDefinitionCommand` and `AddResponseDefinitionCommand`.
+
+### 6.2 `document_remove_parameter_definition` — MEDIUM
+
+Remove a reusable parameter definition from components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `name` | `string` | yes | Parameter definition name to remove |
+
+**Cmd: NEEDS NEW** — Requires `DeleteParameterDefinitionCommand(name)`.
+
+### 6.3 `document_add_header_definition` — MEDIUM
+
+Add a reusable header definition to components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `name` | `string` | yes | Header definition name (e.g. `X-Rate-Limit`) |
+| `header` | `string` | yes | JSON string with the header definition |
+
+**Cmd: NEEDS NEW** — Requires `AddHeaderDefinitionCommand(name, headerObj)`.
+
+### 6.4 `document_remove_header_definition` — MEDIUM
+
+Remove a reusable header definition from components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `name` | `string` | yes | Header definition name to remove |
+
+**Cmd: NEEDS NEW** — Requires `DeleteHeaderDefinitionCommand(name)`.
+
+### 6.5 `document_add_example_definition` — MEDIUM
+
+Add a reusable example to components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `name` | `string` | yes | Example name |
+| `example` | `string` | yes | JSON string with the example definition |
+
+**Cmd: NEEDS NEW** — Requires `AddExampleDefinitionCommand(name, exampleObj)`.
+
+### 6.6 `document_remove_example_definition` — MEDIUM
+
+Remove a reusable example from components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `name` | `string` | yes | Example name to remove |
+
+**Cmd: NEEDS NEW** — Requires `DeleteExampleDefinitionCommand(name)`.
+
+### 6.7 `document_add_request_body_definition` — MEDIUM
+
+Add a reusable request body definition to components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `name` | `string` | yes | Request body definition name |
+| `requestBody` | `string` | yes | JSON string with the request body definition |
+
+**Cmd: NEEDS NEW** — Requires `AddRequestBodyDefinitionCommand(name, reqBodyObj)`.
+
+### 6.8 `document_remove_request_body_definition` — MEDIUM
+
+Remove a reusable request body definition from components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `name` | `string` | yes | Request body definition name to remove |
+
+**Cmd: NEEDS NEW** — Requires `DeleteRequestBodyDefinitionCommand(name)`.
+
+---
+
+## Category 7: Query Tools for Deeper Inspection — MEDIUM
+
+The current query tools cover document-level lists but lack the ability to inspect the
+internals of specific operations, responses, or schemas without using `document_get_node`.
+
+**These are read-only query tools and do not require Commands.**
+
+### 7.1 `document_list_parameters` — MEDIUM
+
+List parameters on a specific path item or operation.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
 | `path` | `string` | yes | The API path |
-| `method` | `string` | no | HTTP method (omit to add to path item level) |
-| `name` | `string` | yes | Parameter name |
-| `location` | `string` | yes | Parameter location: `query`, `path`, `header`, `cookie` |
-| `description` | `string` | no | Parameter description |
-| `required` | `boolean` | no | Whether the parameter is required (auto-set to `true` for path params) |
-| `type` | `string` | no | Schema type: `string`, `integer`, `number`, `boolean`, `array` (defaults to `string`) |
+| `method` | `string` | no | HTTP method (omit for path-item-level parameters) |
 
-**Library command:**
-`CommandFactory.createAddParameterCommand(parent, name, location, description, required, type)`
+**Cmd: N/A** — Read-only; implemented via visitor/node resolution.
 
-**Rationale:** Parameters are the most common element added to operations. The command handles
-the complex differences between OAS 2.0 (parameters are on the operation directly with a
-`type` field) and OAS 3.x (parameters have a `schema` sub-object). Getting this right with
-`document_set_node` requires spec-version-specific knowledge the agent shouldn't need.
+### 7.2 `document_list_responses` — MEDIUM
 
-### 3.2 `document_remove_parameter` — MEDIUM
-
-Remove a parameter from a path item or operation by name and location.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `path` | `string` | yes | The API path |
-| `method` | `string` | no | HTTP method (omit for path item level) |
-| `name` | `string` | yes | Parameter name |
-| `location` | `string` | yes | Parameter location: `query`, `path`, `header`, `cookie` |
-
-**Library command:**
-`CommandFactory.createDeleteParameterCommand(parent, name, location)`
-
-**Rationale:** Pairs with `document_add_parameter`. Parameters are identified by their
-name+location combination, which the command handles correctly.
-
----
-
-## Category 4: Request Body Management
-
-Request bodies (OAS 3.x) are essential for POST/PUT/PATCH operations.
-
-### 4.1 `document_add_request_body` — HIGH
-
-Add an empty request body to an operation (OpenAPI 3.x only). The request body can then be
-configured with media types using `document_add_media_type`.
+List responses on a specific operation with status codes and descriptions.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -185,666 +398,537 @@ configured with media types using `document_add_media_type`.
 | `path` | `string` | yes | The API path |
 | `method` | `string` | yes | HTTP method |
 
-**Library command:** `CommandFactory.createAddRequestBodyCommand(operation)`
+**Cmd: N/A** — Read-only; implemented via visitor/node resolution.
 
-**Rationale:** In OAS 3.x, the request body is a separate object that must be created before
-media types can be added to it. This is a prerequisite step for defining what a POST/PUT
-endpoint accepts.
+### 7.3 `document_list_media_types` — MEDIUM
 
-### 4.2 `document_remove_request_body` — LOW
-
-Remove the request body from an operation.
+List media types on a request body or response.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
-| `path` | `string` | yes | The API path |
-| `method` | `string` | yes | HTTP method |
+| `nodePath` | `string` | yes | Node path to the request body or response |
 
-**Library command:** `CommandFactory.createDeleteRequestBodyCommand(operation)`
+**Cmd: N/A** — Read-only; implemented via visitor/node resolution.
 
-**Rationale:** Less common than adding, but needed for completeness.
+### 7.4 `document_list_extensions` — MEDIUM
+
+List all vendor extensions on a specific node.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the node |
+
+**Cmd: N/A** — Read-only; calls `getExtensions()` on the resolved node.
+
+### 7.5 `document_list_examples` — MEDIUM
+
+List examples on a media type, parameter, or header.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the parent node |
+
+**Cmd: N/A** — Read-only; implemented via node resolution.
+
+### 7.6 `document_find_refs` — MEDIUM
+
+Find all `$ref` references to a given definition throughout the document.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `ref` | `string` | yes | The `$ref` string to search for (e.g. `#/components/schemas/Pet`) |
+
+**Cmd: N/A** — Read-only; implemented via a `RefCollectorVisitor` that traverses the
+entire document collecting all nodes whose `$ref` value matches the target string.
+Returns node paths and parent context for each reference.
+
+**Rationale:** Essential for understanding the impact of renaming or removing a schema,
+response, or parameter definition.
 
 ---
 
-## Category 5: Media Type Management
+## Category 8: Delete Contact / Delete License — MEDIUM
 
-Media types define the content format (e.g., `application/json`) and schema for request
-bodies and responses.
+We can set contact and license info but not remove them entirely.
 
-### 5.1 `document_add_media_type` — HIGH
+### 8.1 `document_delete_contact` — MEDIUM
 
-Add a media type entry to a request body or response (OpenAPI 3.x).
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `nodePath` | `string` | yes | Node path to the request body or response (e.g., `/paths[/pets]/post/requestBody` or `/paths[/pets]/get/responses[200]`) |
-| `mediaType` | `string` | yes | Media type string (e.g., `application/json`, `application/xml`) |
-
-**Library command:**
-`CommandFactory.createAddMediaTypeCommand(parent, mediaTypeName)`
-
-**Rationale:** Media types are the bridge between operations and schemas in OAS 3.x. After
-adding a request body or response, the next step is always to add a media type. This is
-awkward with `document_set_node` because the agent must construct the correct nested content
-map structure.
-
-### 5.2 `document_set_media_type_schema` — HIGH
-
-Set the schema for a media type, either as a `$ref` to a schema definition or as an inline
-type.
+Remove the contact object from the document info.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
-| `nodePath` | `string` | yes | Node path to the media type (e.g., `/paths[/pets]/post/requestBody/content[application/json]`) |
-| `schemaRef` | `string` | no | Schema `$ref` string (e.g., `#/components/schemas/Pet`) |
-| `schemaType` | `string` | no | Inline schema type (`string`, `integer`, `object`, `array`, etc.) |
 
-**Library command:**
-`CommandFactory.createChangeMediaTypeSchemaCommand(mediaType, schemaRef, schemaType)`
+**Cmd: EXISTS** — Uses `CommandFactory.createDeleteContactCommand(info)`.
 
-**Rationale:** Wiring a schema to a media type is the critical step that connects the data
-model to the API operations. The command handles the `$ref` vs inline type distinction
-correctly.
+### 8.2 `document_delete_license` — MEDIUM
+
+Remove the license object from the document info.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+
+**Cmd: EXISTS** — Uses `CommandFactory.createDeleteLicenseCommand(info)`.
 
 ---
 
-## Category 6: Security Scheme Management
+## Category 9: Update Extension — MEDIUM
 
-Security schemes define the authentication mechanisms for an API (API keys, OAuth2, HTTP
-bearer, etc.). An AI agent designing an API will frequently need to set up security.
+We can add and remove extensions but not update them in place.
 
-### 6.1 `document_add_security_scheme` — HIGH
+### 9.1 `document_update_extension` — MEDIUM
 
-Add a security scheme definition to the document.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `name` | `string` | yes | Security scheme name (e.g., `bearerAuth`, `apiKey`) |
-| `scheme` | `string` | yes | JSON string with the security scheme definition |
-
-**Library command:**
-`CommandFactory.createAddSecuritySchemeCommand(name, schemeObj)`
-
-**Rationale:** Security is a critical part of API design. The command ensures the security
-scheme is added to the correct location (OAS 2.0 `securityDefinitions` vs OAS 3.x
-`components/securitySchemes`) and creates the container if needed.
-
-### 6.2 `document_update_security_scheme` — LOW
-
-Update an existing security scheme definition.
+Update the value of an existing vendor extension.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
-| `name` | `string` | yes | Security scheme name |
-| `scheme` | `string` | yes | JSON string with the updated security scheme definition |
-
-**Library command:**
-`CommandFactory.createUpdateSecuritySchemeCommand(name, newSchemeObj)`
-
-**Rationale:** Less common than initial creation, but important for iterating on security
-configuration.
-
-### 6.3 `document_remove_security_scheme` — MEDIUM
-
-Remove a security scheme definition from the document.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `name` | `string` | yes | Security scheme name to remove |
-
-**Library command:** `CommandFactory.createDeleteSecuritySchemeCommand(name)`
-
-**Rationale:** Completes the CRUD lifecycle for security schemes.
-
----
-
-## Category 7: Tag Management
-
-Tags are used to group operations logically (e.g., "pets", "users", "orders"). They are a
-top-level document concept and are commonly managed during API design.
-
-### 7.1 `document_add_tag` — MEDIUM
-
-Add a tag to the document's top-level tags list.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `name` | `string` | yes | Tag name |
-| `description` | `string` | no | Tag description |
-
-**Library command:** `CommandFactory.createAddTagCommand(name, description)`
-
-**Rationale:** Tags are recommended best practice for API organization. The command ensures
-the tag is added to the document-level `tags` array with proper deduplication.
-
-### 7.2 `document_remove_tag` — LOW
-
-Remove a tag from the document's top-level tags list.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `name` | `string` | yes | Tag name to remove |
-
-**Library command:** `CommandFactory.createDeleteTagCommand(name)`
-
-### 7.3 `document_rename_tag` — LOW
-
-Rename a tag across the entire document (updates both the tag definition and all operation
-references).
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `oldName` | `string` | yes | Current tag name |
-| `newName` | `string` | yes | New tag name |
-
-**Library command:** `CommandFactory.createRenameTagCommand(oldName, newName)`
-
-**Rationale:** Renaming a tag is a refactoring operation that must update all references.
-Doing this manually via `document_set_node` would require finding and updating every
-operation that references the tag.
-
----
-
-## Category 8: Server Management
-
-Servers define the base URLs where the API is hosted. This is commonly configured during API
-design.
-
-### 8.1 `document_add_server` — MEDIUM
-
-Add a server to the document (or to a specific path item or operation for OAS 3.x).
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `url` | `string` | yes | Server URL (e.g., `https://api.example.com/v1`) |
-| `description` | `string` | no | Server description |
-| `nodePath` | `string` | no | Node path for scoped servers (e.g., `/paths[/pets]` for path-level). Omit for document-level. |
-
-**Library command:**
-`CommandFactory.createAddServerCommand(parent, serverUrl, serverDescription)` (OpenAPI
-variant)
-
-**Rationale:** Server URLs are one of the first things configured when creating an API. The
-command handles spec-version differences (OAS 2.0 uses `host`/`basePath`, OAS 3.x has a
-`servers` array).
-
-### 8.2 `document_remove_server` — LOW
-
-Remove a server from the document or a specific scope.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `url` | `string` | yes | Server URL to remove |
-| `nodePath` | `string` | no | Node path for scoped servers. Omit for document-level. |
-
-**Library command:**
-`CommandFactory.createDeleteServerCommand(parent, serverUrl)` (OpenAPI variant)
-
----
-
-## Category 9: Contact and License Management
-
-Contact and license information is part of the document's `info` section. These are commonly
-set during initial API setup.
-
-### 9.1 `document_set_contact` — MEDIUM
-
-Set or update the API contact information.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `name` | `string` | no | Contact name |
-| `email` | `string` | no | Contact email |
-| `url` | `string` | no | Contact URL |
-
-**Library command:** `CommandFactory.createChangeContactCommand(name, email, url)`
-
-**Rationale:** Setting contact info is a common initial setup step. The command creates the
-contact object if it doesn't exist.
-
-### 9.2 `document_set_license` — MEDIUM
-
-Set or update the API license information.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `name` | `string` | yes | License name (e.g., `Apache 2.0`, `MIT`) |
-| `url` | `string` | no | License URL |
-
-**Library command:** `CommandFactory.createChangeLicenseCommand(name, url)`
-
-**Rationale:** License information is a best practice for public APIs. The command creates
-the license object if it doesn't exist.
-
----
-
-## Category 10: Schema Management (Enhancements)
-
-The existing `document_add_schema` tool handles creation. These tools complete the lifecycle.
-
-### 10.1 `document_remove_schema` — MEDIUM
-
-Remove a schema definition from the document by name.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `name` | `string` | yes | Schema name to remove |
-
-**Library command:** `CommandFactory.createDeleteSchemaCommand(name)`
-
-**Rationale:** While `document_remove_node` can do this, it requires the agent to know the
-exact path syntax (`/components/schemas[Pet]` for OAS 3.x vs `/definitions[Pet]` for OAS
-2.0). This tool abstracts away the spec-version difference.
-
-### 10.2 `document_get_schema` — MEDIUM
-
-Get the full definition of a schema by name, without needing to know the node path.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `name` | `string` | yes | Schema name |
-
-**Implementation:** Uses a visitor to find the schema container, then retrieves the named
-schema and serializes it with `Library.writeNode()`.
-
-**Rationale:** The existing `document_list_schemas` returns only names. Getting the actual
-schema body requires `document_get_node` with spec-version-dependent paths. This tool
-provides a clean shortcut.
-
----
-
-## Category 11: Path Management (Enhancements)
-
-### 11.1 `document_remove_path` — MEDIUM
-
-Remove a path item from the document by path string.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `path` | `string` | yes | The API path to remove (e.g., `/pets/{petId}`) |
-
-**Library command:** `CommandFactory.createDeletePathCommand(pathName)`
-
-**Rationale:** While `document_remove_node` can do this with `/paths[/pets/{petId}]`, the
-semantic tool is cleaner and doesn't require the agent to know node path syntax with the
-bracket notation.
-
-### 11.2 `document_add_channel` — MEDIUM
-
-Add a channel item to an AsyncAPI document.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `channel` | `string` | yes | Channel name (e.g., `user/signedup`) |
-| `channelItem` | `string` | no | JSON string with channel item content |
-
-**Library command:**
-`CommandFactory.createAddChannelItemCommand(channelName, json)`
-
-**Rationale:** This is the AsyncAPI equivalent of `document_add_path` for OpenAPI. Currently
-there is no dedicated tool for adding AsyncAPI channels.
-
----
-
-## Category 12: Extension Management
-
-Extensions (`x-*` properties) are widely used for documentation, code generation hints, and
-vendor-specific metadata.
-
-### 12.1 `document_add_extension` — LOW
-
-Add a vendor extension (`x-*` property) to any node in the document.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `nodePath` | `string` | yes | Node path to the parent (e.g., `/info`, `/paths[/pets]/get`) |
+| `nodePath` | `string` | yes | Node path to the parent node |
 | `name` | `string` | yes | Extension name (must start with `x-`) |
-| `value` | `string` | yes | JSON string with the extension value |
+| `value` | `string` | yes | JSON string with the new extension value |
 
-**Library command:**
-`CommandFactory.createAddExtensionCommand(parent, name, value)`
-
-**Rationale:** Extensions are a common need for API tooling integration (code generators,
-gateways, documentation tools). The command validates that the name starts with `x-`.
-
-### 12.2 `document_remove_extension` — LOW
-
-Remove a vendor extension from a node.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `nodePath` | `string` | yes | Node path to the parent |
-| `name` | `string` | yes | Extension name to remove |
-
-**Library command:**
-`CommandFactory.createDeleteExtensionCommand(parent, name)`
+**Cmd: EXISTS** — Uses
+`CommandFactory.createChangeExtensionCommand(parent, name, newValue)`.
 
 ---
 
-## Category 13: Response Header Management
+## Category 10: Refactoring / Structural Operations — LOW
 
-### 13.1 `document_add_response_header` — MEDIUM
+Higher-level operations that AI agents and visual editors frequently need but that don't
+map to a single command. These are implemented as aggregations of existing commands.
 
-Add a header to a response definition.
+### 10.1 `document_rename_path` — LOW
+
+Rename a path (e.g. `/users` → `/accounts`), preserving all operations and configuration.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
-| `nodePath` | `string` | yes | Node path to the response (e.g., `/paths[/pets]/get/responses[200]`) |
-| `name` | `string` | yes | Header name (e.g., `X-Rate-Limit`) |
-| `description` | `string` | no | Header description |
-| `schemaType` | `string` | no | Schema type (defaults to `string`) |
-| `schemaRef` | `string` | no | Schema `$ref` (alternative to `schemaType`) |
+| `oldPath` | `string` | yes | Current path string |
+| `newPath` | `string` | yes | New path string |
 
-**Library command:**
-`CommandFactory.createAddResponseHeaderCommand(response, name, description, schemaType,
-schemaRef)`
+**Cmd: EXISTS** — Aggregate of `DeletePathCommand(oldPath)` +
+`AddPathItemCommand(newPath, serializedContent)`. Serialize the old path item content
+before deleting, then add the new path with the serialized content.
 
-**Rationale:** Response headers (rate limits, pagination cursors, correlation IDs) are common
-in well-designed APIs. Constructing the correct header structure manually varies between OAS
-2.0 and 3.x.
+### 10.2 `document_rename_schema` — LOW
 
-### 13.2 `document_remove_response_header` — LOW
+Rename a schema definition and update all `$ref` references throughout the document.
 
-Remove a header from a response.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `oldName` | `string` | yes | Current schema name |
+| `newName` | `string` | yes | New schema name |
+
+**Cmd: NEEDS NEW** — Requires `RenameSchemaDefinitionCommand(oldName, newName)` in
+`@apicurio/data-models`. Must atomically rename the definition and update all `$ref`
+strings (e.g. `#/components/schemas/OldName` → `#/components/schemas/NewName`) throughout
+the document. A simple aggregate of delete + add would not update `$ref` references.
+
+### 10.3 `document_copy_operation` — LOW
+
+Copy an operation from one path/method to another.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `sourcePath` | `string` | yes | Source API path |
+| `sourceMethod` | `string` | yes | Source HTTP method |
+| `targetPath` | `string` | yes | Target API path |
+| `targetMethod` | `string` | yes | Target HTTP method |
+
+**Cmd: EXISTS** — Aggregate of `CreateOperationCommand(targetPathItem, targetMethod)` +
+`ReplaceOperationCommand(emptyOp, serializedSourceOp)`. Serialize the source operation,
+create an empty target operation, then replace it with the serialized content.
+
+### 10.4 `document_move_operation` — LOW
+
+Move an operation from one path/method to another.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `sourcePath` | `string` | yes | Source API path |
+| `sourceMethod` | `string` | yes | Source HTTP method |
+| `targetPath` | `string` | yes | Target API path |
+| `targetMethod` | `string` | yes | Target HTTP method |
+
+**Cmd: EXISTS** — Aggregate of copy (10.3) + `DeleteOperationCommand(sourcePathItem,
+sourceMethod)`.
+
+---
+
+## Category 11: Callback Management — LOW
+
+Callbacks (webhooks) are an OAS 3.x feature with no command support in the library.
+
+### 11.1 `document_add_callback` — LOW
+
+Add a callback definition to an operation or to components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the operation or components |
+| `name` | `string` | yes | Callback name |
+| `callback` | `string` | no | JSON string with the callback definition |
+
+**Cmd: NEEDS NEW** — Requires `AddCallbackCommand(parent, name, callbackObj)` in
+`@apicurio/data-models`.
+
+### 11.2 `document_remove_callback` — LOW
+
+Remove a callback from an operation or components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the operation or components |
+| `name` | `string` | yes | Callback name to remove |
+
+**Cmd: NEEDS NEW** — Requires `DeleteCallbackCommand(parent, name)`.
+
+---
+
+## Category 12: Link Management — LOW
+
+Links (OAS 3.x runtime expressions connecting operations) have no command support.
+
+### 12.1 `document_add_link` — LOW
+
+Add a link to a response or to components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the response or components |
+| `name` | `string` | yes | Link name |
+| `link` | `string` | yes | JSON string with the link definition |
+
+**Cmd: NEEDS NEW** — Requires `AddLinkCommand(parent, name, linkObj)` in
+`@apicurio/data-models`.
+
+### 12.2 `document_remove_link` — LOW
+
+Remove a link from a response or components.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the response or components |
+| `name` | `string` | yes | Link name to remove |
+
+**Cmd: NEEDS NEW** — Requires `DeleteLinkCommand(parent, name)`.
+
+---
+
+## Category 13: External Documentation — LOW
+
+External documentation links can appear on the document, tags, operations, and schemas.
+No commands exist for this.
+
+### 13.1 `document_set_external_docs` — LOW
+
+Set external documentation on a node (document, tag, operation, or schema).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | no | Node path to the target; omit for document level |
+| `url` | `string` | yes | External documentation URL |
+| `description` | `string` | no | Description of the external docs |
+
+**Cmd: NEEDS NEW** — Requires `SetExternalDocsCommand(parent, url, description)` in
+`@apicurio/data-models`. The `externalDocs` node is a complex child object, so
+`ChangePropertyCommand` (which handles only simple types) is not suitable.
+
+---
+
+## Category 14: Server Variable Management — LOW
+
+Server variables (template parameters in server URLs like
+`https://{environment}.api.com`) have no command support.
+
+### 14.1 `document_add_server_variable` — LOW
+
+Add a variable to a server definition.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the server |
+| `name` | `string` | yes | Variable name (e.g. `environment`) |
+| `default` | `string` | yes | Default value |
+| `description` | `string` | no | Variable description |
+| `enum` | `string` | no | JSON array of allowed values |
+
+**Cmd: NEEDS NEW** — Requires `AddServerVariableCommand(server, name, defaultValue,
+description, enumValues)` in `@apicurio/data-models`.
+
+### 14.2 `document_remove_server_variable` — LOW
+
+Remove a variable from a server definition.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the server |
+| `name` | `string` | yes | Variable name to remove |
+
+**Cmd: NEEDS NEW** — Requires `DeleteServerVariableCommand(server, name)`.
+
+---
+
+## Category 15: Bulk Delete Operations — LOW
+
+"Delete all X from Y" commands are useful for visual editors doing bulk cleanup and for
+AI agents resetting sections of a document.
+
+### 15.1 `document_remove_all_operations` — LOW
+
+Remove all operations from a path item.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `path` | `string` | yes | The API path |
+
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteAllPathItemOperationsCommand(pathItem)`.
+
+### 15.2 `document_remove_all_responses` — LOW
+
+Remove all responses from an operation.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `path` | `string` | yes | The API path |
+| `method` | `string` | yes | HTTP method |
+
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteAllResponsesCommand(operation)`.
+
+### 15.3 `document_remove_all_parameters` — LOW
+
+Remove all parameters (or parameters of a specific type) from a path item or operation.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `path` | `string` | yes | The API path |
+| `method` | `string` | no | HTTP method (omit for path-item level) |
+| `type` | `string` | no | Parameter type filter (`query`, `header`, `path`, `cookie`) |
+
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteAllPathItemParametersCommand(pathItem, type)` or
+`CommandFactory.createDeleteAllOperationParametersCommand(operation, type)`.
+
+### 15.4 `document_remove_all_response_headers` — LOW
+
+Remove all headers from a response.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
 | `nodePath` | `string` | yes | Node path to the response |
-| `name` | `string` | yes | Header name to remove |
 
-**Library command:**
-`CommandFactory.createDeleteResponseHeaderCommand(response, name)`
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteAllResponseHeadersCommand(response)`.
 
----
+### 15.5 `document_remove_all_schema_properties` — LOW
 
-## Category 14: Enhanced Query Tools
+Remove all properties from a schema.
 
-The current query tools cover document-level information but lack the ability to answer
-specific questions about an API's structure.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `schemaName` | `string` | yes | Schema name |
 
-### 14.1 `document_list_operations` — HIGH
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteAllPropertiesCommand(schema)`.
 
-List all operations across the entire document, returning path, method, operationId, summary,
-and tags for each.
+### 15.6 `document_remove_all_servers` — LOW
+
+Remove all servers from the document, a path item, or an operation.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session` | `string` | yes | Session name |
+| `nodePath` | `string` | no | Node path; omit for document level |
+
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteAllDocumentServersCommand(document)`,
+`CommandFactory.createDeleteAllPathItemServersCommand(pathItem)`, or
+`CommandFactory.createDeleteAllOperationServersCommand(operation)`.
+
+### 15.7 `document_remove_all_tags` — LOW
+
+Remove all tag definitions from the document.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
 
-**Implementation:** A new `OperationCollectorVisitor` that extends `CombinedVisitorAdapter`,
-overriding `visitOperation()` and using reverse traversal to determine the parent path and
-method.
+**Cmd: EXISTS** — Uses `CommandFactory.createDeleteAllTagsCommand()`.
 
-**Rationale:** The current `document_list_paths` returns paths with their methods, but not
-operationId, summary, or tags. An AI agent frequently needs to answer "what operations
-exist?" and "what does operation X do?" — this tool provides the complete picture in a
-single call.
+### 15.8 `document_remove_all_security_schemes` — LOW
 
-### 14.2 `document_list_security_schemes` — MEDIUM
-
-List all security scheme definitions in the document.
+Remove all security scheme definitions from the document.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
 
-**Implementation:** A new `SecuritySchemeCollectorVisitor` that visits security definitions
-(OAS 2.0) and components (OAS 3.x).
+**Cmd: EXISTS** — Uses
+`CommandFactory.createDeleteAllSecuritySchemesCommand()`.
 
-**Rationale:** There is no current way to list security schemes without using
-`document_get_node` and knowing the exact path. An agent setting up or reviewing API security
-needs this information.
+### 15.9 `document_remove_all_extensions` — LOW
 
-### 14.3 `document_list_servers` — MEDIUM
-
-List all servers defined in the document.
+Remove all vendor extensions from a node.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `session` | `string` | yes | Session name |
+| `nodePath` | `string` | yes | Node path to the node |
 
-**Implementation:** A new `ServerCollectorVisitor` or direct access through the document
-model.
-
-**Rationale:** Servers are fundamental metadata about where the API is hosted. An agent
-reviewing or modifying server configuration needs to see the current state.
-
-### 14.4 `document_list_tags` — MEDIUM
-
-List all tags defined in the document with their descriptions.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-
-**Implementation:** Direct access through the OpenAPI document's `getTags()` method.
-
-**Rationale:** Tags are used for API organization and documentation. An agent needs to see
-existing tags before assigning them to operations or adding new ones.
-
----
-
-## Category 15: Document-Level Utility Tools
-
-### 15.1 `document_export` — MEDIUM
-
-Export the document as a JSON or YAML string without writing to a file. Returns the
-serialized content directly in the MCP response.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Session name |
-| `format` | `string` | no | Output format: `json` or `yaml` (defaults to session format) |
-
-**Implementation:** Uses `Library.writeNode()` and `serializeContent()` from
-`util/format.ts`.
-
-**Rationale:** Currently, the only way to see the full document is to save it to a file and
-then read the file. An agent may need to inspect or share the full document content without
-file I/O.
-
-### 15.2 `document_clone_session` — LOW
-
-Clone an existing session into a new session, creating a deep copy of the document. Useful
-for experimenting with changes without affecting the original.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session` | `string` | yes | Source session name |
-| `newSession` | `string` | yes | Name for the cloned session |
-
-**Implementation:** Uses `Library.cloneDocument()` to deep-copy the document model.
-
-**Rationale:** An AI agent may want to try multiple design approaches or create a variant
-without losing the current state. This supports a "branch and experiment" workflow.
+**Cmd: EXISTS** — Uses `new DeleteAllExtensionsCommand(parent)` (direct instantiation;
+not exposed via `CommandFactory` but available as a library command class).
 
 ---
 
 ## Priority Summary
 
-### HIGH — 9 tools (implement first)
+### HIGH — 9 tools (IMPLEMENTED)
 
-These represent the most common operations when an AI agent is helping design an API:
+| # | Tool | Cmd Status | Status |
+|---|------|------------|--------|
+| 1 | `document_add_schema_property` | EXISTS | DONE |
+| 2 | `document_remove_schema_property` | EXISTS | DONE |
+| 3 | `document_add_security_requirement` | EXISTS | DONE |
+| 4 | `document_add_example` | EXISTS | DONE |
+| 5 | `document_set_operation_info` | EXISTS | DONE |
+| 6 | `document_set_operation_tags` | EXISTS | DONE |
+| 7 | `document_set_schema_required` | EXISTS | DONE |
+| 8 | `document_set_schema_type` | EXISTS | DONE |
+| 9 | `document_add_schema_enum` | EXISTS | DONE |
 
-| # | Tool | Category |
-|---|------|----------|
-| 1 | `document_add_operation` | Operation Management |
-| 2 | `document_remove_operation` | Operation Management |
-| 3 | `document_add_response` | Response Management |
-| 4 | `document_add_parameter` | Parameter Management |
-| 5 | `document_add_request_body` | Request Body Management |
-| 6 | `document_add_media_type` | Media Type Management |
-| 7 | `document_set_media_type_schema` | Media Type Management |
-| 8 | `document_add_security_scheme` | Security Scheme Management |
-| 9 | `document_list_operations` | Enhanced Query Tools |
+### MEDIUM — 19 tools (implement second)
 
-### MEDIUM — 17 tools (implement second)
+| # | Tool | Cmd Status |
+|---|------|------------|
+| 10 | `document_remove_all_security_requirements` | EXISTS |
+| 11 | `document_remove_media_type` | EXISTS |
+| 12 | `document_add_parameter_definition` | NEEDS NEW |
+| 13 | `document_remove_parameter_definition` | NEEDS NEW |
+| 14 | `document_add_header_definition` | NEEDS NEW |
+| 15 | `document_remove_header_definition` | NEEDS NEW |
+| 16 | `document_add_example_definition` | NEEDS NEW |
+| 17 | `document_remove_example_definition` | NEEDS NEW |
+| 18 | `document_add_request_body_definition` | NEEDS NEW |
+| 19 | `document_remove_request_body_definition` | NEEDS NEW |
+| 20 | `document_list_parameters` | N/A |
+| 21 | `document_list_responses` | N/A |
+| 22 | `document_list_media_types` | N/A |
+| 23 | `document_list_extensions` | N/A |
+| 24 | `document_list_examples` | N/A |
+| 25 | `document_find_refs` | N/A |
+| 26 | `document_delete_contact` | EXISTS |
+| 27 | `document_delete_license` | EXISTS |
+| 28 | `document_update_extension` | EXISTS |
 
-These complete the CRUD lifecycle and add useful query capabilities:
+### LOW — 21 tools (implement last)
 
-| # | Tool | Category |
-|---|------|----------|
-| 10 | `document_remove_response` | Response Management |
-| 11 | `document_add_response_definition` | Response Management |
-| 12 | `document_remove_parameter` | Parameter Management |
-| 13 | `document_remove_security_scheme` | Security Scheme Management |
-| 14 | `document_add_tag` | Tag Management |
-| 15 | `document_add_server` | Server Management |
-| 16 | `document_set_contact` | Contact and License |
-| 17 | `document_set_license` | Contact and License |
-| 18 | `document_remove_schema` | Schema Enhancements |
-| 19 | `document_get_schema` | Schema Enhancements |
-| 20 | `document_remove_path` | Path Enhancements |
-| 21 | `document_add_channel` | Path Enhancements |
-| 22 | `document_add_response_header` | Response Headers |
-| 23 | `document_list_security_schemes` | Enhanced Query Tools |
-| 24 | `document_list_servers` | Enhanced Query Tools |
-| 25 | `document_list_tags` | Enhanced Query Tools |
-| 26 | `document_export` | Utility Tools |
-
-### LOW — 9 tools (implement last)
-
-These handle less common scenarios or have reasonable fallbacks with generic tools:
-
-| # | Tool | Category |
-|---|------|----------|
-| 27 | `document_remove_request_body` | Request Body Management |
-| 28 | `document_update_security_scheme` | Security Scheme Management |
-| 29 | `document_remove_tag` | Tag Management |
-| 30 | `document_rename_tag` | Tag Management |
-| 31 | `document_remove_server` | Server Management |
-| 32 | `document_add_extension` | Extension Management |
-| 33 | `document_remove_extension` | Extension Management |
-| 34 | `document_remove_response_header` | Response Headers |
-| 35 | `document_clone_session` | Utility Tools |
+| # | Tool | Cmd Status |
+|---|------|------------|
+| 29 | `document_remove_all_examples` | EXISTS |
+| 30 | `document_rename_path` | EXISTS |
+| 31 | `document_rename_schema` | NEEDS NEW |
+| 32 | `document_copy_operation` | EXISTS |
+| 33 | `document_move_operation` | EXISTS |
+| 34 | `document_add_callback` | NEEDS NEW |
+| 35 | `document_remove_callback` | NEEDS NEW |
+| 36 | `document_add_link` | NEEDS NEW |
+| 37 | `document_remove_link` | NEEDS NEW |
+| 38 | `document_set_external_docs` | NEEDS NEW |
+| 39 | `document_add_server_variable` | NEEDS NEW |
+| 40 | `document_remove_server_variable` | NEEDS NEW |
+| 41 | `document_remove_all_operations` | EXISTS |
+| 42 | `document_remove_all_responses` | EXISTS |
+| 43 | `document_remove_all_parameters` | EXISTS |
+| 44 | `document_remove_all_response_headers` | EXISTS |
+| 45 | `document_remove_all_schema_properties` | EXISTS |
+| 46 | `document_remove_all_servers` | EXISTS |
+| 47 | `document_remove_all_tags` | EXISTS |
+| 48 | `document_remove_all_security_schemes` | EXISTS |
+| 49 | `document_remove_all_extensions` | EXISTS |
 
 ---
 
-## Tool Count by Category
+## Command Status Summary
 
-| Category | New Tools | HIGH | MEDIUM | LOW |
-|----------|-----------|------|--------|-----|
-| Operation Management | 2 | 2 | 0 | 0 |
-| Response Management | 3 | 1 | 2 | 0 |
-| Parameter Management | 2 | 1 | 1 | 0 |
-| Request Body Management | 2 | 1 | 0 | 1 |
-| Media Type Management | 2 | 2 | 0 | 0 |
-| Security Scheme Management | 3 | 1 | 1 | 1 |
-| Tag Management | 3 | 0 | 1 | 2 |
-| Server Management | 2 | 0 | 1 | 1 |
-| Contact and License | 2 | 0 | 2 | 0 |
-| Schema Enhancements | 2 | 0 | 2 | 0 |
-| Path Enhancements | 2 | 0 | 2 | 0 |
-| Extension Management | 2 | 0 | 0 | 2 |
-| Response Headers | 2 | 0 | 1 | 1 |
-| Enhanced Query Tools | 4 | 1 | 3 | 0 |
-| Utility Tools | 2 | 0 | 1 | 1 |
-| **Total** | **35** | **9** | **17** | **9** |
+| Status | Count | Description |
+|--------|-------|-------------|
+| EXISTS | 28 | Command exists in `@apicurio/data-models`; ready to implement |
+| NEEDS NEW | 15 | Requires a new command in `@apicurio/data-models` first |
+| N/A | 6 | Read-only query tool; no command needed |
+| **Total** | **49** | |
 
-After implementation, the server would have **53 tools** total (18 existing + 35 new),
-providing comprehensive coverage for AI-assisted API design.
+Of these 49, 9 HIGH priority tools have been implemented, leaving **40 remaining**. After
+all tools are implemented, the server would have **102 tools** total (62 existing + 40
+remaining).
+
+### New Commands Required in `@apicurio/data-models`
+
+The following 18 commands must be implemented in the `@apicurio/data-models` library
+before the corresponding MCP tools can be built. Each has a tracking issue in
+[Apicurio/apicurio-data-models](https://github.com/Apicurio/apicurio-data-models).
+
+| # | Command | For Tool(s) | Priority | Issue |
+|---|---------|-------------|----------|-------|
+| 1 | `AddSchemaPropertyCommand` | `document_add_schema_property` | HIGH | [#983](https://github.com/Apicurio/apicurio-data-models/issues/983) |
+| 2 | `DeleteSchemaPropertyCommand` | `document_remove_schema_property` | HIGH | [#984](https://github.com/Apicurio/apicurio-data-models/issues/984) |
+| 3 | `AddParameterDefinitionCommand` | `document_add_parameter_definition` | MEDIUM | [#985](https://github.com/Apicurio/apicurio-data-models/issues/985) |
+| 4 | `DeleteParameterDefinitionCommand` | `document_remove_parameter_definition` | MEDIUM | [#986](https://github.com/Apicurio/apicurio-data-models/issues/986) |
+| 5 | `AddHeaderDefinitionCommand` | `document_add_header_definition` | MEDIUM | [#987](https://github.com/Apicurio/apicurio-data-models/issues/987) |
+| 6 | `DeleteHeaderDefinitionCommand` | `document_remove_header_definition` | MEDIUM | [#988](https://github.com/Apicurio/apicurio-data-models/issues/988) |
+| 7 | `AddExampleDefinitionCommand` | `document_add_example_definition` | MEDIUM | [#989](https://github.com/Apicurio/apicurio-data-models/issues/989) |
+| 8 | `DeleteExampleDefinitionCommand` | `document_remove_example_definition` | MEDIUM | [#990](https://github.com/Apicurio/apicurio-data-models/issues/990) |
+| 9 | `AddRequestBodyDefinitionCommand` | `document_add_request_body_definition` | MEDIUM | [#991](https://github.com/Apicurio/apicurio-data-models/issues/991) |
+| 10 | `DeleteRequestBodyDefinitionCommand` | `document_remove_request_body_definition` | MEDIUM | [#992](https://github.com/Apicurio/apicurio-data-models/issues/992) |
+| 11 | `RenameSchemaDefinitionCommand` | `document_rename_schema` | LOW | [#994](https://github.com/Apicurio/apicurio-data-models/issues/994) |
+| 12 | `AddCallbackCommand` | `document_add_callback` | LOW | [#995](https://github.com/Apicurio/apicurio-data-models/issues/995) |
+| 13 | `DeleteCallbackCommand` | `document_remove_callback` | LOW | [#995](https://github.com/Apicurio/apicurio-data-models/issues/995) |
+| 14 | `AddLinkCommand` | `document_add_link` | LOW | [#996](https://github.com/Apicurio/apicurio-data-models/issues/996) |
+| 15 | `DeleteLinkCommand` | `document_remove_link` | LOW | [#996](https://github.com/Apicurio/apicurio-data-models/issues/996) |
+| 16 | `SetExternalDocsCommand` | `document_set_external_docs` | LOW | [#997](https://github.com/Apicurio/apicurio-data-models/issues/997) |
+| 17 | `AddServerVariableCommand` | `document_add_server_variable` | LOW | [#998](https://github.com/Apicurio/apicurio-data-models/issues/998) |
+| 18 | `DeleteServerVariableCommand` | `document_remove_server_variable` | LOW | [#998](https://github.com/Apicurio/apicurio-data-models/issues/998) |
 
 ---
 
 ## Implementation Notes
 
-### File Organization
-
-New tools should follow the existing pattern of registering in category-specific files:
-
-- **Operation, Response, Parameter, Request Body, Media Type tools** →
-  `src/tools/edit.ts` (or split into a new `src/tools/operation.ts` if `edit.ts` becomes
-  too large)
-- **Security, Tag, Server, Contact/License tools** → `src/tools/edit.ts` or new
-  `src/tools/metadata.ts`
-- **New query tools** → `src/tools/query.ts`
-- **Extension tools** → `src/tools/edit.ts`
-- **Export, Clone tools** → `src/tools/session.ts`
-
 ### New Visitors Needed
 
-1. **`OperationCollectorVisitor`** — For `document_list_operations`. Visits all operations
-   and collects path, method, operationId, summary, tags, and response status codes.
-2. **`SecuritySchemeCollectorVisitor`** — For `document_list_security_schemes`. Visits
-   security definitions/components and collects scheme names and types.
-3. **`ServerCollectorVisitor`** — For `document_list_servers`. Visits servers and collects
-   URL and description.
-4. **`TagCollectorVisitor`** — For `document_list_tags`. Visits document tags and collects
-   name and description.
+- **RefCollectorVisitor** — For `document_find_refs`. Traverses entire document collecting
+  all nodes with a `$ref` property matching a given target string. Returns node paths and
+  parent context for each reference.
 
-### Common Implementation Pattern
+### File Organization
 
-Every new edit tool follows this pattern (visible in the existing `document_add_path` and
-`document_set_info` implementations):
-
-```typescript
-server.tool(
-    "document_<verb>_<noun>",
-    "<description>",
-    {
-        session: z.string().describe("Session name"),
-        // ... other params with z.string(), z.boolean(), z.enum(), etc.
-    },
-    withErrorHandling(async (args) => {
-        const { session, ...rest } = args;
-        const entry = sessionManager.getSession(session);
-        const doc = entry.document;
-
-        // Resolve parent node(s) via NodePath if needed
-        // Validate preconditions
-        // Create and execute command(s)
-
-        const command = CommandFactory.createXxxCommand(...);
-        command.execute(doc);
-
-        sessionManager.touchSession(session);
-
-        return successResult({ session, /* result fields */ });
-    }),
-);
-```
-
-### Node Resolution Helper
-
-Many of the new tools need to resolve a path+method to an operation node, or a path to a
-path item node. Consider extracting a shared helper:
-
-```typescript
-function resolveOperation(
-    doc: Document,
-    apiPath: string,
-    method: string,
-): Node | null {
-    const nodePath = NodePath.parse(`/paths[${apiPath}]/${method.toLowerCase()}`);
-    return Library.resolveNodePath(nodePath, doc);
-}
-
-function resolvePathItem(
-    doc: Document,
-    apiPath: string,
-): Node | null {
-    const nodePath = NodePath.parse(`/paths[${apiPath}]`);
-    return Library.resolveNodePath(nodePath, doc);
-}
-```
+Following the established pattern:
+- **Schema property tools** → `src/tools/edit.ts`
+- **Security requirement tools** → `src/tools/edit.ts`
+- **Example tools** → `src/tools/edit.ts`
+- **Operation metadata tools** → `src/tools/edit.ts`
+- **Component definition tools** → `src/tools/edit.ts`
+- **New query tools** → `src/tools/query.ts`
+- **Refactoring tools** → new `src/tools/refactor.ts` (if edit.ts becomes too large)
+- **Bulk delete tools** → `src/tools/edit.ts`

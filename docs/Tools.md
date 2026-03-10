@@ -514,6 +514,106 @@ Remove a header from an OpenAPI response.
 | `nodePath` | string | yes | Node path to the response (e.g. `/paths[/pets]/get/responses[200]`) |
 | `name` | string | yes | Header name to remove (e.g. `X-Rate-Limit`) |
 
+### `document_add_schema_property`
+
+Add a named property to an object schema definition.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `schemaName` | string | yes | Name of the schema definition (e.g. `Pet`) |
+| `propertyName` | string | yes | Property name to add (e.g. `status`) |
+| `schema` | string | yes | JSON string with the property schema (e.g. `{"type":"string"}`) |
+
+### `document_remove_schema_property`
+
+Remove a named property from an object schema definition.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `schemaName` | string | yes | Name of the schema definition (e.g. `Pet`) |
+| `propertyName` | string | yes | Property name to remove |
+
+### `document_add_security_requirement`
+
+Add a security requirement to the document or to a specific operation.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `requirement` | string | yes | JSON object mapping scheme names to scopes (e.g. `{"bearerAuth":[]}`) |
+| `path` | string | no | API path (required if applying to an operation) |
+| `method` | string | no | HTTP method (required if applying to an operation) |
+
+### `document_add_example`
+
+Add a named example to a media type, parameter, or header (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the media type, parameter, or header |
+| `name` | string | yes | Example name |
+| `value` | string | yes | JSON string with the example value |
+| `summary` | string | no | Example summary |
+| `description` | string | no | Example description |
+
+### `document_set_operation_info`
+
+Set metadata properties on an operation (operationId, summary, description, deprecated).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path (e.g. `/pets`) |
+| `method` | string | yes | HTTP method (`get`, `post`, `put`, etc.) |
+| `operationId` | string | no | Operation ID |
+| `summary` | string | no | Operation summary |
+| `description` | string | no | Operation description |
+| `deprecated` | boolean | no | Whether the operation is deprecated |
+
+### `document_set_operation_tags`
+
+Set the tags array on an operation.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path (e.g. `/pets`) |
+| `method` | string | yes | HTTP method (`get`, `post`, `put`, etc.) |
+| `tags` | string | yes | JSON array of tag names (e.g. `["pets","admin"]`) |
+
+### `document_set_schema_required`
+
+Set the `required` array on a schema, controlling which properties are mandatory.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `schemaName` | string | yes | Name of the schema definition (e.g. `Pet`) |
+| `required` | string | yes | JSON array of required property names (e.g. `["id","name"]`) |
+
+### `document_set_schema_type`
+
+Set the `type` field on a schema (string, object, array, integer, number, boolean).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the schema |
+| `type` | string | yes | Schema type value |
+
+### `document_add_schema_enum`
+
+Set enum values on a schema.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the schema |
+| `values` | string | yes | JSON array of enum values (e.g. `["active","inactive"]`) |
+
 ---
 
 ## Validation
