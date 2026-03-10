@@ -792,6 +792,217 @@ Update the value of an existing vendor extension.
 | `name` | string | yes | Extension name (must start with `x-`) |
 | `value` | string | yes | JSON string with the new extension value |
 
+### `document_remove_all_examples`
+
+Remove all examples from a media type, parameter, or header (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the media type, parameter, or header |
+
+### `document_rename_path`
+
+Rename a path (e.g. `/users` to `/accounts`), preserving all operations and configuration.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `oldPath` | string | yes | Current path string |
+| `newPath` | string | yes | New path string |
+
+### `document_rename_schema`
+
+Rename a schema definition and update all `$ref` references throughout the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `oldName` | string | yes | Current schema name |
+| `newName` | string | yes | New schema name |
+
+### `document_copy_operation`
+
+Copy an operation from one path/method to another.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `sourcePath` | string | yes | Source API path |
+| `sourceMethod` | string | yes | Source HTTP method |
+| `targetPath` | string | yes | Target API path |
+| `targetMethod` | string | yes | Target HTTP method |
+
+### `document_move_operation`
+
+Move an operation from one path/method to another (copy + delete source).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `sourcePath` | string | yes | Source API path |
+| `sourceMethod` | string | yes | Source HTTP method |
+| `targetPath` | string | yes | Target API path |
+| `targetMethod` | string | yes | Target HTTP method |
+
+### `document_add_callback`
+
+Add a callback definition to an operation (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the operation |
+| `name` | string | yes | Callback name |
+| `callback` | string | no | JSON string with the callback definition |
+
+### `document_remove_callback`
+
+Remove a callback from an operation (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the operation |
+| `name` | string | yes | Callback name to remove |
+
+### `document_add_link`
+
+Add a link to a response (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the response |
+| `name` | string | yes | Link name |
+| `link` | string | yes | JSON string with the link definition |
+
+### `document_remove_link`
+
+Remove a link from a response (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the response |
+| `name` | string | yes | Link name to remove |
+
+### `document_set_external_docs`
+
+Set external documentation on a node (document, tag, operation, or schema).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | no | Node path to the target; omit for document level |
+| `url` | string | yes | External documentation URL |
+| `description` | string | no | Description of the external docs |
+
+### `document_add_server_variable`
+
+Add a variable to a server definition (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the server |
+| `name` | string | yes | Variable name (e.g. `environment`) |
+| `default` | string | yes | Default value |
+| `description` | string | no | Variable description |
+| `enum` | string | no | JSON array of allowed values |
+
+### `document_remove_server_variable`
+
+Remove a variable from a server definition (OpenAPI 3.x only).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the server |
+| `name` | string | yes | Variable name to remove |
+
+### `document_remove_all_operations`
+
+Remove all operations from a path item.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path |
+
+### `document_remove_all_responses`
+
+Remove all responses from an operation.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path |
+| `method` | string | yes | HTTP method |
+
+### `document_remove_all_parameters`
+
+Remove all parameters (or parameters of a specific type) from a path item or operation.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `path` | string | yes | The API path |
+| `method` | string | no | HTTP method (omit for path-item level) |
+| `type` | string | no | Parameter type filter (`query`, `header`, `path`, `cookie`) |
+
+### `document_remove_all_response_headers`
+
+Remove all headers from a response.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the response |
+
+### `document_remove_all_schema_properties`
+
+Remove all properties from a schema.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `schemaName` | string | yes | Schema name |
+
+### `document_remove_all_servers`
+
+Remove all servers from the document, a path item, or an operation.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | no | Node path; omit for document level |
+
+### `document_remove_all_tags`
+
+Remove all tag definitions from the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+
+### `document_remove_all_security_schemes`
+
+Remove all security scheme definitions from the document.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+
+### `document_remove_all_extensions`
+
+Remove all vendor extensions from a node.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `session` | string | yes | Session name |
+| `nodePath` | string | yes | Node path to the node |
+
 ---
 
 ## Validation

@@ -5,11 +5,11 @@ current 53 tools, closing remaining gaps for AI-assisted API design and visual e
 
 ## Current State
 
-The server currently has **81 tools** across 5 categories: session management (7), document
-querying (16), document editing (55), validation (1), and transformation (2). These cover
+The server currently has **102 tools** across 5 categories: session management (7), document
+querying (16), document editing (76), validation (1), and transformation (2). These cover
 session lifecycle, document CRUD for paths/operations/responses/parameters/schemas/tags/
 servers/security schemes/extensions/media types/response headers/request bodies/channels,
-plus validation and spec-version transformation.
+plus validation and spec-version transformation. All proposed tools have been implemented.
 
 The generic tools `document_set_node`, `document_get_node`, and `document_remove_node`
 provide a fallback for any operation, but they require the AI agent to understand internal
@@ -540,10 +540,9 @@ Rename a schema definition and update all `$ref` references throughout the docum
 | `oldName` | `string` | yes | Current schema name |
 | `newName` | `string` | yes | New schema name |
 
-**Cmd: NEEDS NEW** — Requires `RenameSchemaDefinitionCommand(oldName, newName)` in
-`@apicurio/data-models`. Must atomically rename the definition and update all `$ref`
-strings (e.g. `#/components/schemas/OldName` → `#/components/schemas/NewName`) throughout
-the document. A simple aggregate of delete + add would not update `$ref` references.
+**Cmd: EXISTS** — Uses `CommandFactory.createRenameSchemaDefinitionCommand(oldName,
+newName)`. Added in `@apicurio/data-models` v2.5.1. Atomically renames the definition and
+updates all `$ref` strings throughout the document.
 
 ### 10.3 `document_copy_operation` — LOW
 
@@ -593,8 +592,8 @@ Add a callback definition to an operation or to components.
 | `name` | `string` | yes | Callback name |
 | `callback` | `string` | no | JSON string with the callback definition |
 
-**Cmd: NEEDS NEW** — Requires `AddCallbackCommand(parent, name, callbackObj)` in
-`@apicurio/data-models`.
+**Cmd: EXISTS** — Uses `CommandFactory.createAddCallbackCommand(parent, name,
+callbackObj)`. Added in `@apicurio/data-models` v2.5.1.
 
 ### 11.2 `document_remove_callback` — LOW
 
@@ -606,7 +605,8 @@ Remove a callback from an operation or components.
 | `nodePath` | `string` | yes | Node path to the operation or components |
 | `name` | `string` | yes | Callback name to remove |
 
-**Cmd: NEEDS NEW** — Requires `DeleteCallbackCommand(parent, name)`.
+**Cmd: EXISTS** — Uses `CommandFactory.createDeleteCallbackCommand(parent, name)`.
+Added in `@apicurio/data-models` v2.5.1.
 
 ---
 
@@ -625,8 +625,8 @@ Add a link to a response or to components.
 | `name` | `string` | yes | Link name |
 | `link` | `string` | yes | JSON string with the link definition |
 
-**Cmd: NEEDS NEW** — Requires `AddLinkCommand(parent, name, linkObj)` in
-`@apicurio/data-models`.
+**Cmd: EXISTS** — Uses `CommandFactory.createAddLinkCommand(parent, name, linkObj)`.
+Added in `@apicurio/data-models` v2.5.1.
 
 ### 12.2 `document_remove_link` — LOW
 
@@ -638,7 +638,8 @@ Remove a link from a response or components.
 | `nodePath` | `string` | yes | Node path to the response or components |
 | `name` | `string` | yes | Link name to remove |
 
-**Cmd: NEEDS NEW** — Requires `DeleteLinkCommand(parent, name)`.
+**Cmd: EXISTS** — Uses `CommandFactory.createDeleteLinkCommand(parent, name)`.
+Added in `@apicurio/data-models` v2.5.1.
 
 ---
 
@@ -658,9 +659,8 @@ Set external documentation on a node (document, tag, operation, or schema).
 | `url` | `string` | yes | External documentation URL |
 | `description` | `string` | no | Description of the external docs |
 
-**Cmd: NEEDS NEW** — Requires `SetExternalDocsCommand(parent, url, description)` in
-`@apicurio/data-models`. The `externalDocs` node is a complex child object, so
-`ChangePropertyCommand` (which handles only simple types) is not suitable.
+**Cmd: EXISTS** — Uses `CommandFactory.createSetExternalDocsCommand(parent, url,
+description)`. Added in `@apicurio/data-models` v2.5.1.
 
 ---
 
@@ -682,8 +682,8 @@ Add a variable to a server definition.
 | `description` | `string` | no | Variable description |
 | `enum` | `string` | no | JSON array of allowed values |
 
-**Cmd: NEEDS NEW** — Requires `AddServerVariableCommand(server, name, defaultValue,
-description, enumValues)` in `@apicurio/data-models`.
+**Cmd: EXISTS** — Uses `CommandFactory.createAddServerVariableCommand(server, name,
+defaultValue, description, enumValues)`. Added in `@apicurio/data-models` v2.5.1.
 
 ### 14.2 `document_remove_server_variable` — LOW
 
@@ -695,7 +695,8 @@ Remove a variable from a server definition.
 | `nodePath` | `string` | yes | Node path to the server |
 | `name` | `string` | yes | Variable name to remove |
 
-**Cmd: NEEDS NEW** — Requires `DeleteServerVariableCommand(server, name)`.
+**Cmd: EXISTS** — Uses `CommandFactory.createDeleteServerVariableCommand(server, name)`.
+Added in `@apicurio/data-models` v2.5.1.
 
 ---
 
@@ -857,31 +858,31 @@ not exposed via `CommandFactory` but available as a library command class).
 | 27 | `document_delete_license` | EXISTS | DONE |
 | 28 | `document_update_extension` | EXISTS | DONE |
 
-### LOW — 21 tools (implement last)
+### LOW — 21 tools (IMPLEMENTED)
 
-| # | Tool | Cmd Status |
-|---|------|------------|
-| 29 | `document_remove_all_examples` | EXISTS |
-| 30 | `document_rename_path` | EXISTS |
-| 31 | `document_rename_schema` | NEEDS NEW |
-| 32 | `document_copy_operation` | EXISTS |
-| 33 | `document_move_operation` | EXISTS |
-| 34 | `document_add_callback` | NEEDS NEW |
-| 35 | `document_remove_callback` | NEEDS NEW |
-| 36 | `document_add_link` | NEEDS NEW |
-| 37 | `document_remove_link` | NEEDS NEW |
-| 38 | `document_set_external_docs` | NEEDS NEW |
-| 39 | `document_add_server_variable` | NEEDS NEW |
-| 40 | `document_remove_server_variable` | NEEDS NEW |
-| 41 | `document_remove_all_operations` | EXISTS |
-| 42 | `document_remove_all_responses` | EXISTS |
-| 43 | `document_remove_all_parameters` | EXISTS |
-| 44 | `document_remove_all_response_headers` | EXISTS |
-| 45 | `document_remove_all_schema_properties` | EXISTS |
-| 46 | `document_remove_all_servers` | EXISTS |
-| 47 | `document_remove_all_tags` | EXISTS |
-| 48 | `document_remove_all_security_schemes` | EXISTS |
-| 49 | `document_remove_all_extensions` | EXISTS |
+| # | Tool | Cmd Status | Status |
+|---|------|------------|--------|
+| 29 | `document_remove_all_examples` | EXISTS | DONE |
+| 30 | `document_rename_path` | EXISTS | DONE |
+| 31 | `document_rename_schema` | EXISTS | DONE |
+| 32 | `document_copy_operation` | EXISTS | DONE |
+| 33 | `document_move_operation` | EXISTS | DONE |
+| 34 | `document_add_callback` | EXISTS | DONE |
+| 35 | `document_remove_callback` | EXISTS | DONE |
+| 36 | `document_add_link` | EXISTS | DONE |
+| 37 | `document_remove_link` | EXISTS | DONE |
+| 38 | `document_set_external_docs` | EXISTS | DONE |
+| 39 | `document_add_server_variable` | EXISTS | DONE |
+| 40 | `document_remove_server_variable` | EXISTS | DONE |
+| 41 | `document_remove_all_operations` | EXISTS | DONE |
+| 42 | `document_remove_all_responses` | EXISTS | DONE |
+| 43 | `document_remove_all_parameters` | EXISTS | DONE |
+| 44 | `document_remove_all_response_headers` | EXISTS | DONE |
+| 45 | `document_remove_all_schema_properties` | EXISTS | DONE |
+| 46 | `document_remove_all_servers` | EXISTS | DONE |
+| 47 | `document_remove_all_tags` | EXISTS | DONE |
+| 48 | `document_remove_all_security_schemes` | EXISTS | DONE |
+| 49 | `document_remove_all_extensions` | EXISTS | DONE |
 
 ---
 
@@ -889,20 +890,16 @@ not exposed via `CommandFactory` but available as a library command class).
 
 | Status | Count | Description |
 |--------|-------|-------------|
-| EXISTS | 36 | Command exists in `@apicurio/data-models`; ready to implement |
-| NEEDS NEW | 7 | Requires a new command in `@apicurio/data-models` first |
+| EXISTS | 43 | Command exists in `@apicurio/data-models`; ready to implement |
 | N/A | 6 | Read-only query tool; no command needed |
 | **Total** | **49** | |
 
-Of these 49, 9 HIGH and 19 MEDIUM priority tools have been implemented, leaving **21
-remaining** (all LOW priority). After all tools are implemented, the server would have
-**102 tools** total (81 existing + 21 remaining).
+All 49 proposed tools have been implemented. The server now has **102 tools** total.
 
-### New Commands Required in `@apicurio/data-models`
+### Previously Required Commands (Now Available)
 
-The following 18 commands must be implemented in the `@apicurio/data-models` library
-before the corresponding MCP tools can be built. Each has a tracking issue in
-[Apicurio/apicurio-data-models](https://github.com/Apicurio/apicurio-data-models).
+All commands listed below were initially missing from `@apicurio/data-models` but were
+added in v2.5.1. All corresponding MCP tools have been implemented.
 
 | # | Command | For Tool(s) | Priority | Issue |
 |---|---------|-------------|----------|-------|

@@ -4,6 +4,7 @@ import {
     AddSecurityRequirementCommand,
     AggregateCommand,
     CommandFactory,
+    DeleteAllExtensionsCommand,
     Library,
     ModelTypeUtil,
     NodePath,
@@ -14,6 +15,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { sessionManager } from "../session-manager.js";
 import { errorResult, successResult, withErrorHandling } from "../util/errors.js";
+import { ClearNodeVisitor } from "../visitors/ClearNodeVisitor.js";
 import { RemoveNodeVisitor } from "../visitors/RemoveNodeVisitor.js";
 import { type SchemaContainer, SchemaContainerVisitor } from "../visitors/SchemaContainerVisitor.js";
 
@@ -2280,6 +2282,887 @@ export function registerEditTools(server: McpServer): void {
                 nodePath: nodePathStr,
                 name,
                 updated: true,
+            });
+        }),
+    );
+
+    // ── document_remove_all_examples ─────────────────────────────
+    server.tool(
+        "document_remove_all_examples",
+        "Remove all examples from a media type, parameter, or header",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the media type, parameter, or header"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const node = Library.resolveNodePath(np, doc);
+            if (node == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            // Determine the correct delete command based on the parent node type
+            const nodeJson = Library.writeNode(node);
+            let command: ICommand;
+            if ((nodeJson as any).content !== undefined) {
+                // MediaType parent (has content property → likely wrong, try as media type itself)
+                command = CommandFactory.createDeleteAllMediaTypeExamplesCommand(node as any);
+            } else if ((nodeJson as any).in !== undefined) {
+                command = CommandFactory.createDeleteAllParameterExamplesCommand(node as any);
+            } else {
+                // Try as header or fall back to media type
+                command = CommandFactory.createDeleteAllMediaTypeExamplesCommand(node as any);
+            }
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_rename_path ─────────────────────────────────────
+    server.tool(
+        "document_rename_path",
+        "Rename a path, preserving all operations and configuration",
+        {
+            session: z.string().describe("Session name"),
+            oldPath: z.string().describe("Current path string (e.g. /users)"),
+            newPath: z.string().describe("New path string (e.g. /accounts)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, oldPath, newPath } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            // Resolve and serialize the old path item before deleting
+            const oldPathNode = resolvePathItem(doc, oldPath);
+            if (isErrorResult(oldPathNode)) return oldPathNode;
+            const pathItemJson = Library.writeNode(oldPathNode as Node);
+
+            // Delete the old path
+            const deleteCmd = CommandFactory.createDeletePathCommand(oldPath);
+            deleteCmd.execute(doc);
+
+            // Add the new path with the serialized content
+            const addCmd = CommandFactory.createAddPathItemCommand(newPath, pathItemJson as any);
+            addCmd.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                oldPath,
+                newPath,
+                renamed: true,
+            });
+        }),
+    );
+
+    // ── document_rename_schema ───────────────────────────────────
+    server.tool(
+        "document_rename_schema",
+        "Rename a schema definition and update all $ref references throughout the document",
+        {
+            session: z.string().describe("Session name"),
+            oldName: z.string().describe("Current schema name"),
+            newName: z.string().describe("New schema name"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, oldName, newName } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const command = CommandFactory.createRenameSchemaDefinitionCommand(oldName, newName);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                oldName,
+                newName,
+                renamed: true,
+            });
+        }),
+    );
+
+    // ── document_copy_operation ──────────────────────────────────
+    server.tool(
+        "document_copy_operation",
+        "Copy an operation from one path/method to another",
+        {
+            session: z.string().describe("Session name"),
+            sourcePath: z.string().describe("Source API path"),
+            sourceMethod: z.string().describe("Source HTTP method"),
+            targetPath: z.string().describe("Target API path"),
+            targetMethod: z.string().describe("Target HTTP method"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, sourcePath, sourceMethod, targetPath, targetMethod } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            // Resolve and serialize the source operation
+            const sourceOp = resolveOperation(doc, sourcePath, sourceMethod);
+            if (isErrorResult(sourceOp)) return sourceOp;
+            const sourceJson = Library.writeNode(sourceOp as Node);
+
+            // Resolve the target path item
+            const targetPathItem = resolvePathItem(doc, targetPath);
+            if (isErrorResult(targetPathItem)) return targetPathItem;
+
+            // Create an empty operation at the target
+            const createCmd = CommandFactory.createCreateOperationCommand(
+                targetPathItem as any,
+                targetMethod.toLowerCase(),
+            );
+            createCmd.execute(doc);
+
+            // Resolve the newly created target operation and populate it
+            const targetOp = Library.resolveNodePath(
+                NodePath.parse(`/paths[${targetPath}]/${targetMethod.toLowerCase()}`),
+                doc,
+            );
+            if (targetOp != null) {
+                const clearVisitor = new ClearNodeVisitor();
+                targetOp.accept(clearVisitor);
+                Library.readNode(sourceJson, targetOp);
+            }
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                source: `${sourceMethod.toUpperCase()} ${sourcePath}`,
+                target: `${targetMethod.toUpperCase()} ${targetPath}`,
+                copied: true,
+            });
+        }),
+    );
+
+    // ── document_move_operation ──────────────────────────────────
+    server.tool(
+        "document_move_operation",
+        "Move an operation from one path/method to another",
+        {
+            session: z.string().describe("Session name"),
+            sourcePath: z.string().describe("Source API path"),
+            sourceMethod: z.string().describe("Source HTTP method"),
+            targetPath: z.string().describe("Target API path"),
+            targetMethod: z.string().describe("Target HTTP method"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, sourcePath, sourceMethod, targetPath, targetMethod } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            // Resolve and serialize the source operation
+            const sourceOp = resolveOperation(doc, sourcePath, sourceMethod);
+            if (isErrorResult(sourceOp)) return sourceOp;
+            const sourceJson = Library.writeNode(sourceOp as Node);
+
+            // Resolve the target path item
+            const targetPathItem = resolvePathItem(doc, targetPath);
+            if (isErrorResult(targetPathItem)) return targetPathItem;
+
+            // Create an empty operation at the target
+            const createCmd = CommandFactory.createCreateOperationCommand(
+                targetPathItem as any,
+                targetMethod.toLowerCase(),
+            );
+            createCmd.execute(doc);
+
+            // Populate the target operation with source content
+            const targetOp = Library.resolveNodePath(
+                NodePath.parse(`/paths[${targetPath}]/${targetMethod.toLowerCase()}`),
+                doc,
+            );
+            if (targetOp != null) {
+                const clearVisitor = new ClearNodeVisitor();
+                targetOp.accept(clearVisitor);
+                Library.readNode(sourceJson, targetOp);
+            }
+
+            // Delete the source operation
+            const sourcePathItem = resolvePathItem(doc, sourcePath);
+            if (!isErrorResult(sourcePathItem)) {
+                const deleteCmd = CommandFactory.createDeleteOperationCommand(
+                    sourcePathItem as any,
+                    sourceMethod.toLowerCase(),
+                );
+                deleteCmd.execute(doc);
+            }
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                source: `${sourceMethod.toUpperCase()} ${sourcePath}`,
+                target: `${targetMethod.toUpperCase()} ${targetPath}`,
+                moved: true,
+            });
+        }),
+    );
+
+    // ── document_add_callback ────────────────────────────────────
+    server.tool(
+        "document_add_callback",
+        "Add a callback definition to an operation or to components (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the operation or components"),
+            name: z.string().describe("Callback name"),
+            callback: z.string().optional().describe("JSON string with the callback definition"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, name, callback: callbackJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Callbacks are only supported in OpenAPI 3.x documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const parent = Library.resolveNodePath(np, doc);
+            if (parent == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const callbackObj = callbackJson ? JSON.parse(callbackJson) : {};
+            const command = CommandFactory.createAddCallbackCommand(parent, name, callbackObj);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                name,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_remove_callback ─────────────────────────────────
+    server.tool(
+        "document_remove_callback",
+        "Remove a callback from an operation or components (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the operation or components"),
+            name: z.string().describe("Callback name to remove"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Callbacks are only supported in OpenAPI 3.x documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const parent = Library.resolveNodePath(np, doc);
+            if (parent == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const command = CommandFactory.createDeleteCallbackCommand(parent, name);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                name,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_add_link ────────────────────────────────────────
+    server.tool(
+        "document_add_link",
+        "Add a link to a response or to components (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the response or components"),
+            name: z.string().describe("Link name"),
+            link: z.string().describe("JSON string with the link definition"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, name, link: linkJson } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Links are only supported in OpenAPI 3.x documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const parent = Library.resolveNodePath(np, doc);
+            if (parent == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const linkObj = JSON.parse(linkJson);
+            const command = CommandFactory.createAddLinkCommand(parent, name, linkObj);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                name,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_remove_link ─────────────────────────────────────
+    server.tool(
+        "document_remove_link",
+        "Remove a link from a response or components (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the response or components"),
+            name: z.string().describe("Link name to remove"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Links are only supported in OpenAPI 3.x documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const parent = Library.resolveNodePath(np, doc);
+            if (parent == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const command = CommandFactory.createDeleteLinkCommand(parent, name);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                name,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_set_external_docs ───────────────────────────────
+    server.tool(
+        "document_set_external_docs",
+        "Set external documentation on a node (document, tag, operation, or schema)",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().optional().describe("Node path to the target; omit for document level"),
+            url: z.string().describe("External documentation URL"),
+            description: z.string().optional().describe("Description of the external docs"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, url, description } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            let parent: Node;
+            if (nodePathStr) {
+                const np = NodePath.parse(nodePathStr);
+                const resolved = Library.resolveNodePath(np, doc);
+                if (resolved == null) {
+                    return errorResult(`No node found at path: ${nodePathStr}`);
+                }
+                parent = resolved;
+            } else {
+                parent = doc;
+            }
+
+            const command = CommandFactory.createSetExternalDocsCommand(parent, url, description ?? "");
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr ?? "/",
+                url,
+                description: description ?? "",
+                set: true,
+            });
+        }),
+    );
+
+    // ── document_add_server_variable ─────────────────────────────
+    server.tool(
+        "document_add_server_variable",
+        "Add a variable to a server definition (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the server"),
+            name: z.string().describe("Variable name (e.g. environment)"),
+            default: z.string().describe("Default value"),
+            description: z.string().optional().describe("Variable description"),
+            enum: z.string().optional().describe("JSON array of allowed values"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, name, default: defaultValue, description } = args;
+            const enumJson = args.enum;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Server variables are only supported in OpenAPI 3.x documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const server = Library.resolveNodePath(np, doc);
+            if (server == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const enumValues: string[] = enumJson ? JSON.parse(enumJson) : [];
+            const command = CommandFactory.createAddServerVariableCommand(
+                server as any,
+                name,
+                defaultValue,
+                description ?? "",
+                enumValues,
+            );
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                name,
+                added: true,
+            });
+        }),
+    );
+
+    // ── document_remove_server_variable ──────────────────────────
+    server.tool(
+        "document_remove_server_variable",
+        "Remove a variable from a server definition (OpenAPI 3.x only)",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the server"),
+            name: z.string().describe("Variable name to remove"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr, name } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            if (ModelTypeUtil.isOpenApi2Model(doc)) {
+                return errorResult("Server variables are only supported in OpenAPI 3.x documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const server = Library.resolveNodePath(np, doc);
+            if (server == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const command = CommandFactory.createDeleteServerVariableCommand(server as any, name);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                name,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_all_operations ───────────────────────────
+    server.tool(
+        "document_remove_all_operations",
+        "Remove all operations from a path item",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const pathItem = resolvePathItem(doc, apiPath);
+            if (isErrorResult(pathItem)) return pathItem;
+
+            const command = CommandFactory.createDeleteAllPathItemOperationsCommand(pathItem as any);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_all_responses ────────────────────────────
+    server.tool(
+        "document_remove_all_responses",
+        "Remove all responses from an operation",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path"),
+            method: z.string().describe("HTTP method"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const operation = resolveOperation(doc, apiPath, method);
+            if (isErrorResult(operation)) return operation;
+
+            const command = CommandFactory.createDeleteAllResponsesCommand(operation as any);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method.toUpperCase(),
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_all_parameters ───────────────────────────
+    server.tool(
+        "document_remove_all_parameters",
+        "Remove all parameters (or parameters of a specific type) from a path item or operation",
+        {
+            session: z.string().describe("Session name"),
+            path: z.string().describe("The API path"),
+            method: z.string().optional().describe("HTTP method (omit for path-item level)"),
+            type: z.string().optional().describe("Parameter type filter (query, header, path, cookie)"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, path: apiPath, method, type: paramType } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            // The library command filters by type, so when no type is specified we must
+            // invoke it once per standard parameter location to remove all parameters.
+            const types = paramType ? [paramType] : ["query", "header", "path", "cookie"];
+
+            for (const t of types) {
+                let command: ICommand;
+                if (method) {
+                    const operation = resolveOperation(doc, apiPath, method);
+                    if (isErrorResult(operation)) return operation;
+                    command = CommandFactory.createDeleteAllOperationParametersCommand(operation as any, t);
+                } else {
+                    const pathItem = resolvePathItem(doc, apiPath);
+                    if (isErrorResult(pathItem)) return pathItem;
+                    command = CommandFactory.createDeleteAllPathItemParametersCommand(pathItem as any, t);
+                }
+                command.execute(doc);
+            }
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                path: apiPath,
+                method: method?.toUpperCase(),
+                type: paramType,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_all_response_headers ─────────────────────
+    server.tool(
+        "document_remove_all_response_headers",
+        "Remove all headers from a response",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the response"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const np = NodePath.parse(nodePathStr);
+            const response = Library.resolveNodePath(np, doc);
+            if (response == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const command = CommandFactory.createDeleteAllResponseHeadersCommand(response as any);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_all_schema_properties ────────────────────
+    server.tool(
+        "document_remove_all_schema_properties",
+        "Remove all properties from a schema",
+        {
+            session: z.string().describe("Session name"),
+            schemaName: z.string().describe("Schema name"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, schemaName } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const schemaPath = ModelTypeUtil.isOpenApi2Model(doc)
+                ? `/definitions[${schemaName}]`
+                : `/components/schemas[${schemaName}]`;
+            const schema = Library.resolveNodePath(NodePath.parse(schemaPath), doc);
+            if (schema == null) {
+                return errorResult(`Schema not found: ${schemaName}`);
+            }
+
+            const command = CommandFactory.createDeleteAllPropertiesCommand(schema as any);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                schemaName,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_all_servers ──────────────────────────────
+    server.tool(
+        "document_remove_all_servers",
+        "Remove all servers from the document, a path item, or an operation",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().optional().describe("Node path; omit for document level"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            let command: ICommand;
+            if (nodePathStr) {
+                const np = NodePath.parse(nodePathStr);
+                const node = Library.resolveNodePath(np, doc);
+                if (node == null) {
+                    return errorResult(`No node found at path: ${nodePathStr}`);
+                }
+                // Determine if this is a path item or operation based on the path structure
+                const segments = nodePathStr.split("/").filter((s: string) => s.length > 0);
+                if (segments.length > 1 && HTTP_METHODS.includes(segments[segments.length - 1] as any)) {
+                    command = CommandFactory.createDeleteAllOperationServersCommand(node as any);
+                } else {
+                    command = CommandFactory.createDeleteAllPathItemServersCommand(node as any);
+                }
+            } else {
+                command = CommandFactory.createDeleteAllDocumentServersCommand(doc as any);
+            }
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr ?? "/",
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_all_tags ─────────────────────────────────
+    server.tool(
+        "document_remove_all_tags",
+        "Remove all tag definitions from the document",
+        {
+            session: z.string().describe("Session name"),
+        },
+        withErrorHandling(async (args) => {
+            const { session } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const command = CommandFactory.createDeleteAllTagsCommand();
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_all_security_schemes ─────────────────────
+    server.tool(
+        "document_remove_all_security_schemes",
+        "Remove all security scheme definitions from the document",
+        {
+            session: z.string().describe("Session name"),
+        },
+        withErrorHandling(async (args) => {
+            const { session } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            if (!ModelTypeUtil.isOpenApiModel(doc)) {
+                return errorResult("This operation is only supported for OpenAPI documents");
+            }
+
+            const command = CommandFactory.createDeleteAllSecuritySchemesCommand();
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                removed: true,
+            });
+        }),
+    );
+
+    // ── document_remove_all_extensions ───────────────────────────
+    server.tool(
+        "document_remove_all_extensions",
+        "Remove all vendor extensions from a node",
+        {
+            session: z.string().describe("Session name"),
+            nodePath: z.string().describe("Node path to the node"),
+        },
+        withErrorHandling(async (args) => {
+            const { session, nodePath: nodePathStr } = args;
+            const entry = sessionManager.getSession(session);
+            const doc = entry.document;
+
+            const np = NodePath.parse(nodePathStr);
+            const parent = Library.resolveNodePath(np, doc);
+            if (parent == null) {
+                return errorResult(`No node found at path: ${nodePathStr}`);
+            }
+
+            const command = new DeleteAllExtensionsCommand(parent);
+            command.execute(doc);
+
+            sessionManager.touchSession(session);
+
+            return successResult({
+                session,
+                nodePath: nodePathStr,
+                removed: true,
             });
         }),
     );

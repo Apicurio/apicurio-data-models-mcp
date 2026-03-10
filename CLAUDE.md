@@ -59,7 +59,7 @@ document to operate on.
   `document_list_tags`, `document_list_parameters`, `document_list_responses`,
   `document_list_media_types`, `document_list_extensions`, `document_list_examples`,
   `document_find_refs`
-- **Edit tools** (55): `document_set_info`, `document_add_path`, `document_add_schema`,
+- **Edit tools** (76): `document_set_info`, `document_add_path`, `document_add_schema`,
   `document_set_node`, `document_remove_node`, `document_add_operation`,
   `document_remove_operation`, `document_add_response`, `document_add_parameter`,
   `document_add_request_body`, `document_add_media_type`, `document_set_media_type_schema`,
@@ -81,7 +81,16 @@ document to operate on.
   `document_remove_header_definition`, `document_add_example_definition`,
   `document_remove_example_definition`, `document_add_request_body_definition`,
   `document_remove_request_body_definition`, `document_delete_contact`,
-  `document_delete_license`, `document_update_extension`
+  `document_delete_license`, `document_update_extension`,
+  `document_remove_all_examples`, `document_rename_path`, `document_rename_schema`,
+  `document_copy_operation`, `document_move_operation`, `document_add_callback`,
+  `document_remove_callback`, `document_add_link`, `document_remove_link`,
+  `document_set_external_docs`, `document_add_server_variable`,
+  `document_remove_server_variable`, `document_remove_all_operations`,
+  `document_remove_all_responses`, `document_remove_all_parameters`,
+  `document_remove_all_response_headers`, `document_remove_all_schema_properties`,
+  `document_remove_all_servers`, `document_remove_all_tags`,
+  `document_remove_all_security_schemes`, `document_remove_all_extensions`
 - **Validation tool** (1): `document_validate`
 - **Transform tools** (2): `document_transform`, `document_dereference`
 
