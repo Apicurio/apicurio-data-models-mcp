@@ -12,14 +12,14 @@ permissions:
 
 jobs:
   release:
-    name: Release Apicurio Data Models MCP
+    name: Apicurio Data Models MCP
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Checkout code
         uses: actions/checkout@v4
