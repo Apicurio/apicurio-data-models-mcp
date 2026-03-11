@@ -11,24 +11,18 @@ easy for AI coding agents to query, validate, and edit OpenAPI and AsyncAPI docu
 
 ## Quick Start
 
+### Install from npm
+
 ```bash
-npm install
-npm run build
+npm install -g @apicurio/data-models-mcp
 ```
 
 ### Configure in Claude Code
 
-Add to your MCP settings (`~/.claude/settings.json` or project `.claude/settings.json`):
+The easiest way is to use the `claude mcp add` command:
 
-```json
-{
-    "mcpServers": {
-        "apicurio-data-models": {
-            "command": "node",
-            "args": ["/path/to/apicurio-data-models-mcp/dist/index.js"]
-        }
-    }
-}
+```bash
+claude mcp add apicurio-data-models apicurio-data-models-mcp
 ```
 
 ## Tool Catalog
