@@ -33,48 +33,11 @@ Add to your MCP settings (`~/.claude/settings.json` or project `.claude/settings
 
 ## Tool Catalog
 
-### Session Management (5 tools)
+The server provides **102 tools** across 5 categories: session management (7), document
+querying (16), document editing (76), validation (1), and transformation (2).
 
-| Tool | Description |
-|------|-------------|
-| `document_load` | Load an OpenAPI/AsyncAPI file into a named session |
-| `document_create` | Create a new empty document in a named session |
-| `document_save` | Save a session's document to a file (JSON or YAML) |
-| `document_close` | Close a named session and release memory |
-| `document_list_sessions` | List all active sessions |
-
-### Query (5 tools)
-
-| Tool | Description |
-|------|-------------|
-| `document_get_info` | Get document overview (type, title, version, path/schema counts) |
-| `document_list_paths` | List all paths or channels with their operations |
-| `document_get_operation` | Get full details of a specific operation |
-| `document_list_schemas` | List all schema/component definitions |
-| `document_get_node` | Get any node by its node path |
-
-### Validation (1 tool)
-
-| Tool | Description |
-|------|-------------|
-| `document_validate` | Validate the document and return structured problems |
-
-### Editing (5 tools)
-
-| Tool | Description |
-|------|-------------|
-| `document_set_info` | Set document title, description, and/or version |
-| `document_add_path` | Add a new path item to an OpenAPI document |
-| `document_add_schema` | Add a schema definition |
-| `document_set_node` | Set/replace any node at a given node path |
-| `document_remove_node` | Remove any node by its node path |
-
-### Transformation (2 tools)
-
-| Tool | Description |
-|------|-------------|
-| `document_transform` | Convert between spec versions (OpenAPI 2.0 -> 3.0) |
-| `document_dereference` | Resolve all `$ref` references inline |
+See the [full tools reference](docs/Tools.md) for detailed documentation on every tool and
+its parameters.
 
 ## MCP Resources
 
