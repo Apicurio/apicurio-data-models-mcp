@@ -8,6 +8,7 @@ easy for AI coding agents to query, validate, and edit OpenAPI and AsyncAPI docu
 - OpenAPI 2.0 (Swagger)
 - OpenAPI 3.0.x
 - AsyncAPI 2.x
+- AsyncAPI 3.x
 
 ## Quick Start
 
